@@ -453,7 +453,7 @@ export const sessionsService = {
     // re-parsing the whole file per request. Cursor and OpenCode read their
     // messages from elsewhere (store.db / shared SQLite), so that file's stat
     // says nothing about their history — they stay on the direct path.
-    const transcriptPath = provider === 'claude' || provider === 'codex'
+    const transcriptPath = provider === 'claude' || provider === 'codex' || provider === 'antigravity'
       ? session.jsonl_path
       : null;
     const fullHistory = await sessionHistoryCache.getFullHistory({
@@ -464,6 +464,7 @@ export const sessionsService = {
         offset: 0,
         projectPath,
         providerSessionId,
+        jsonlPath: session.jsonl_path ?? null,
       }),
     });
 
@@ -485,6 +486,7 @@ export const sessionsService = {
         offset: requestedOffset,
         projectPath,
         providerSessionId,
+        jsonlPath: session.jsonl_path ?? null,
       });
     }
 
