@@ -82,10 +82,17 @@ const mergeProviderModels = (
   predefined: ProviderModelsDefinition,
   custom: CustomProviderModelRecord[],
 ): ProviderModelsDefinition => {
+  // A later CloudCLI release can promote a formerly custom model ID into the
+  // curated catalog. Keep the user row intact, but do not return a duplicate
+  // option that would hide the curated model's effort metadata in the UI.
+  const predefinedIds = new Set(predefined.OPTIONS.map((option) => option.value));
+
   return {
     OPTIONS: [
       ...predefined.OPTIONS.map((option) => ({ ...option, isCustom: false })),
-      ...custom.map(toCustomProviderModelOption),
+      ...custom
+        .filter((record) => !predefinedIds.has(record.modelId))
+        .map(toCustomProviderModelOption),
     ],
     DEFAULT: predefined.DEFAULT,
     // Copied so no caller can mutate the shared capability matrix.
