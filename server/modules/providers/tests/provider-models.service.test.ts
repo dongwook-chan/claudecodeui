@@ -142,6 +142,26 @@ test('provider catalogs merge source-controlled defaults with custom persistence
   assert.deepEqual(catalog.rows.get('codex'), undefined);
 });
 
+test('curated models take precedence over legacy custom rows with the same ID', async () => {
+  const catalog = createCatalogStore();
+  catalog.rows.set('codex', [{
+    recordId: 1,
+    provider: 'codex',
+    modelId: 'codex-default',
+    model: 'Old custom Codex default',
+    sortOrder: 0,
+  }]);
+  const { service } = createTestService({ catalog });
+
+  const models = await service.getProviderModels('codex');
+
+  assert.deepEqual(models.OPTIONS, [{
+    value: 'codex-default',
+    label: 'codex-default',
+    isCustom: false,
+  }]);
+});
+
 test('custom models can be created, edited, and deleted', async () => {
   const { service } = createTestService();
   const created = await service.createCustomModel('claude', {
