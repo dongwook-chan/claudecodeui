@@ -157,6 +157,7 @@ test('curated models take precedence over legacy custom rows with the same ID', 
     modelId: 'codex-default',
     model: 'Old custom Codex default',
     sortOrder: 0,
+    effort: null,
   }]);
   const { service } = createTestService({ catalog });
 
@@ -272,6 +273,7 @@ test('allowed effort levels come from the provider, not from the built-in models
   // Every merged catalog carries the provider's levels for the model library,
   // weakest first, and an empty list where effort is unsupported.
   const expectedLevels: Record<LLMProvider, string[]> = {
+    antigravity: [],
     claude: ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'],
     codex: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
     cursor: [],

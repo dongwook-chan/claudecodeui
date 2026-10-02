@@ -128,6 +128,7 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
     supportsPermissionRequests: false,
     supportsTokenUsage: false,
     supportsEffort: false,
+    effortLevels: [],
     supportsMessageEditing: false,
     supportsSessionForking: false,
   },
