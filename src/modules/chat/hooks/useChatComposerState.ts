@@ -252,7 +252,7 @@ export function useChatComposerState({
     ) => Promise<void>) | null
   >(null);
   const inputValueRef = useRef(input);
-  const isSubmittingRef = useRef(false);
+  const sendingScopesRef = useRef(new Set<string>());
   const pendingNewSessionRef = useRef<{
     sessionId: string;
     projectId: string;
@@ -821,8 +821,9 @@ export function useChatComposerState({
         });
         return;
       }
-      if (isSubmittingRef.current) return;
-      isSubmittingRef.current = true;
+      const sendingScope = draftScope ?? '';
+      if (sendingScopesRef.current.has(sendingScope)) return;
+      sendingScopesRef.current.add(sendingScope);
       try {
 
         let uploadedAttachments = previouslyUploadedAttachments;
@@ -1021,7 +1022,7 @@ export function useChatComposerState({
           if (draftScope) writeDraftText(draftScope, '');
         }
       } finally {
-        isSubmittingRef.current = false;
+        sendingScopesRef.current.delete(sendingScope);
       }
     },
     [
