@@ -500,10 +500,10 @@ const ensureAntigravityProviderModelsConstraint = (db: Database): void => {
         model_id TEXT NOT NULL,
          model_name TEXT NOT NULL,
          sort_order INTEGER NOT NULL DEFAULT 0,
+         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
          effort_values TEXT DEFAULT NULL,
          effort_default TEXT DEFAULT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(provider, model_id)
       )
     `);
