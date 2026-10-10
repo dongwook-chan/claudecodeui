@@ -1604,3 +1604,18 @@ export type CliApplication = {
 export type SandboxCommandService = {
   execute(argumentsList: string[]): Promise<number>;
 };
+
+//----------------- PROVIDER NOTIFICATION TARGETS ------------
+/**
+ * Delivery target shared by the Notifications run-completion, background-task,
+ * and failure entrypoints. Providers may supply an app or native session id;
+ * Notifications resolves it to the app session before formatting the payload.
+ * Null user ids disable delivery, and absent session metadata permits a generic
+ * notification for providers that have not established a session yet.
+ */
+export type ProviderNotificationTarget = {
+  userId: string | number | null;
+  provider: string;
+  sessionId?: string | null;
+  sessionName?: string | null;
+};

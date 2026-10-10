@@ -252,9 +252,9 @@ function buildShellCommand(
 
   if (provider === 'antigravity') {
     if (resumeSessionId) {
-      return `agy --conversation "${resumeSessionId}"`;
+      return otherProgram(`agy --conversation "${resumeSessionId}"`);
     }
-    return initialCommand || 'agy';
+    return otherProgram(initialCommand || 'agy');
   }
 
   // Launching with the flag is what unlocks "bypass permissions" in the CLI's

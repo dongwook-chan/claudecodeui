@@ -1,5 +1,6 @@
 // @ts-nocheck -- existing notification channel payloads retain their dynamic contract.
 import webPush from 'web-push';
+import type { ProviderNotificationTarget } from '@/shared/index.js';
 
 import { notificationPreferencesDb, pushSubscriptionsDb, sessionsDb } from '@/modules/database/index.js';
 import { sendDesktopNotification as sendDesktopNotificationToClients } from '@/modules/notifications/services/desktop-notification-clients.service.js';
@@ -262,7 +263,7 @@ export function notifyUserIfEnabled({ userId, event }) {
  * }} input
  */
 // Used by Providers runtimes through the Notifications barrel to report completed runs.
-export function notifyRunStopped({ userId, provider, sessionId = null, stopReason = 'completed', sessionName = null }) {
+export function notifyRunStopped({ userId, provider, sessionId = null, stopReason = 'completed', sessionName = null }: ProviderNotificationTarget & { stopReason?: string }) {
   notifyUserIfEnabled({
     userId,
     event: createNotificationEvent({
@@ -285,7 +286,7 @@ export function notifyRunStopped({ userId, provider, sessionId = null, stopReaso
  * the default composite key collapses repeats inside the dedupe window.
  */
 // Used by Providers runtimes through the Notifications barrel for completed background tasks.
-export function notifyBackgroundWorkCompleted({ userId, provider, sessionId = null, sessionName = null }) {
+export function notifyBackgroundWorkCompleted({ userId, provider, sessionId = null, sessionName = null }: ProviderNotificationTarget) {
   notifyUserIfEnabled({
     userId,
     event: createNotificationEvent({
@@ -309,7 +310,7 @@ export function notifyBackgroundWorkCompleted({ userId, provider, sessionId = nu
  * }} input
  */
 // Used by Providers runtimes through the Notifications barrel to report a failed run.
-export function notifyRunFailed({ userId, provider, sessionId = null, error, sessionName = null }) {
+export function notifyRunFailed({ userId, provider, sessionId = null, error, sessionName = null }: ProviderNotificationTarget & { error: unknown }) {
   const errorMessage = normalizeErrorMessage(error);
 
   notifyUserIfEnabled({
