@@ -19,6 +19,7 @@ import type {
   ProviderPermissionDecision,
   ProviderRuntimeWriter,
 } from '@/shared/types.js';
+import { createCompleteMessage } from '@/shared/index.js';
 import { parseIncomingJsonObject } from '@/shared/utils.js';
 
 /**
@@ -236,6 +237,12 @@ async function dispatchRun(
 ): Promise<{ started: boolean; error: string | null }> {
   const provider = session.provider as LLMProvider;
 
+  const external = await sessionsService.getExternalSessionActivity(sessionId);
+  if (external && !chatRunRegistry.isProcessing(sessionId)) {
+    if (ws) sendProtocolError(ws, 'RUN_IN_PROGRESS', 'This session is running in the Codex CLI. Stop it or wait for it to finish.', sessionId);
+    return { started: false, error: 'A Codex CLI writer already owns this session.' };
+  }
+
   const run = chatRunRegistry.startRun({
     appSessionId: sessionId,
     provider,
@@ -445,6 +452,16 @@ async function handleChatAbort(
 
   const run = chatRunRegistry.getRun(sessionId);
   if (!run || run.status !== 'running') {
+    const external = await sessionsService.getExternalSessionActivity(sessionId);
+    if (external) {
+      const stopped = await sessionsService.abortExternalSession(sessionId);
+      if (stopped) {
+        sendJson(ws, createCompleteMessage({ provider: external.provider, sessionId, exitCode: 0, aborted: true }));
+      } else {
+        sendProtocolError(ws, 'ABORT_FAILED', 'The external Codex writer could not be stopped.', sessionId);
+      }
+      return;
+    }
     sendProtocolError(ws, 'NO_ACTIVE_RUN', `Session "${sessionId}" has no active run.`, sessionId);
     return;
   }
@@ -511,11 +528,11 @@ async function handleChatStopTask(
  * This single message replaces the old `check-session-status`,
  * `get-pending-permissions`, and Claude-only writer reconnect flows.
  */
-function handleChatSubscribe(
+async function handleChatSubscribe(
   ws: WebSocket,
   data: AnyRecord,
   dependencies: ChatWebSocketDependencies
-): void {
+): Promise<void> {
   const targets = Array.isArray(data.sessions) ? data.sessions : [];
 
   for (const target of targets) {
@@ -535,8 +552,12 @@ function handleChatSubscribe(
       ? Math.max(0, Math.floor(lastSeqRaw))
       : 0;
 
+    let external = chatRunRegistry.isProcessing(sessionId)
+      ? null
+      : await sessionsService.getExternalSessionActivity(sessionId);
     const run = chatRunRegistry.getRun(sessionId);
-    const isProcessing = chatRunRegistry.isProcessing(sessionId);
+    if (run?.status === 'running') external = null;
+    const isProcessing = chatRunRegistry.isProcessing(sessionId) || Boolean(external);
 
     // Future live events for this run should land on the socket that asked —
     // this is what makes mid-stream page refreshes work for all providers.
@@ -544,7 +565,7 @@ function handleChatSubscribe(
     // keeps producing events through the same writer (task progress, the
     // turn the CLI pushes when a task reports), so a tab opened during that
     // work attaches too; the registry keeps the run while the work lasts.
-    if (isProcessing || dependencies.runtime.hasBackgroundWork(sessionId)) {
+    if (run?.status === 'running' || dependencies.runtime.hasBackgroundWork(sessionId)) {
       chatRunRegistry.attachConnection(sessionId, ws);
     }
 
@@ -556,6 +577,7 @@ function handleChatSubscribe(
       kind: 'chat_subscribed',
       sessionId,
       isProcessing,
+      ...(external ? { canInterrupt: external.canInterrupt, statusText: external.statusText } : {}),
       lastSeq: run?.lastSeq ?? 0,
       pendingPermissions,
       timestamp: new Date().toISOString(),
@@ -565,7 +587,7 @@ function handleChatSubscribe(
     // are fully persisted to the provider transcript and served over REST —
     // replaying them (e.g. after a page reload where the client's lastSeq is
     // 0) would duplicate messages the history fetch already returned.
-    if (isProcessing) {
+    if (run?.status === 'running') {
       for (const event of chatRunRegistry.replayEvents(sessionId, lastSeq)) {
         sendJson(ws, event);
       }
@@ -705,7 +727,7 @@ export function handleChatConnection(
           await handleChatStopTask(ws, data, dependencies);
           return;
         case 'chat.subscribe':
-          handleChatSubscribe(ws, data, dependencies);
+          await handleChatSubscribe(ws, data, dependencies);
           return;
         case 'chat.permission-response':
           handlePermissionResponse(data, dependencies);
