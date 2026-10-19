@@ -23,6 +23,7 @@ const renderHandlers = () => {
   const stored: NormalizedMessage[] = [];
   const log: ActivityLog = [];
   const syncs: string[] = [];
+  const processing: Array<{ sessionId: string; activity?: { statusText?: string | null; canInterrupt?: boolean } }> = [];
   // The activity map as the provider would hold it, so the handler's read of
   // "is this session background-only" sees its own earlier report.
   const activityBySession = new Map<string, SessionActivity>();
@@ -41,6 +42,9 @@ const renderHandlers = () => {
     setPendingPermissionRequests: () => {},
     lastSeqRef: { current: new Map() },
     statusCheckSentAtRef: { current: new Map() },
+    onSessionProcessing: (sessionId, activity) => {
+      if (sessionId) processing.push({ sessionId, activity });
+    },
     onSessionIdle: (sessionId) => {
       if (sessionId) {
         activityBySession.delete(sessionId);
@@ -66,7 +70,7 @@ const renderHandlers = () => {
   }));
 
   const dispatch = (event: ServerEvent) => listener?.(event);
-  return { dispatch, log, syncs };
+  return { dispatch, log, syncs, processing };
 };
 
 const event = (fields: Record<string, unknown>): ServerEvent => ({
@@ -192,4 +196,16 @@ test('a refused stop request does not idle the session it was sent on', () => {
   // Any other rejection still means the send never became a run.
   dispatch(event({ kind: 'protocol_error', code: 'SESSION_NOT_FOUND', error: 'gone' }));
   assert.deepEqual(log, [{ sessionId: 'viewed-session', idle: true }]);
+});
+
+test('external subscribe metadata and rejected duplicate sends retain the busy state', () => {
+  const { dispatch, log, processing } = renderHandlers();
+  dispatch(event({ kind: 'chat_subscribed', isProcessing: true, canInterrupt: false, statusText: 'Running in the Codex CLI' }));
+  assert.deepEqual(processing[0], {
+    sessionId: 'viewed-session', activity: { canInterrupt: false, statusText: 'Running in the Codex CLI' },
+  });
+  dispatch(event({ kind: 'protocol_error', code: 'RUN_IN_PROGRESS', error: 'Already running' }));
+  dispatch(event({ kind: 'protocol_error', code: 'ABORT_FAILED', error: 'Still running' }));
+  assert.equal(processing.length, 2);
+  assert.deepEqual(log, []);
 });
