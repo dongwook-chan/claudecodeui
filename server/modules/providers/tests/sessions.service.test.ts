@@ -7,6 +7,7 @@ import test from 'node:test';
 import { closeConnection, initializeDatabase, projectsDb, sessionsDb } from '@/modules/database/index.js';
 import { providerRegistry } from '@/modules/providers/provider.registry.js';
 import { sessionsService } from '@/modules/providers/services/sessions.service.js';
+import { codexCliLivenessService } from '@/modules/providers/services/codex-cli-liveness.service.js';
 import { chatRunRegistry } from '@/modules/websocket/index.js';
 import type { IProvider } from '@/shared/interfaces.js';
 import type { BackgroundTaskSummary } from '@/shared/types.js';
@@ -39,6 +40,38 @@ test('provider session id returns the mapped native id', { concurrency: false },
 
     assert.equal(sessionsService.getProviderSessionId('app-session-id'), 'codex-native-session-id');
   });
+});
+
+test('external Codex writers are reported with app ids and cannot be forked', { concurrency: false }, async () => {
+  const originalList = codexCliLivenessService.listSessions;
+  const originalGet = codexCliLivenessService.getSession;
+  const live = { providerSessionId: 'native-codex', pid: 123, procStart: '456', startedAt: 789, canInterrupt: true };
+  codexCliLivenessService.listSessions = async () => [live];
+  codexCliLivenessService.getSession = async () => live;
+  try {
+    await withIsolatedDatabase(async () => {
+      sessionsDb.createAppSession('external-app', 'codex', '/tmp/external-codex');
+      sessionsDb.assignProviderSessionId('external-app', live.providerSessionId);
+      const entries = await sessionsService.listRunningSessions();
+      assert.deepEqual(entries.find((entry) => entry.sessionId === 'external-app'), {
+        sessionId: 'external-app', provider: 'codex', startedAt: 789, lastSeq: 0,
+        canInterrupt: true, external: true, statusText: 'Running in the Codex CLI',
+      });
+      await assert.rejects(() => sessionsService.forkSessionById('external-app'),
+        (error: Error & { code?: string; statusCode?: number }) => error.code === 'RUN_IN_PROGRESS' && error.statusCode === 409);
+
+      chatRunRegistry.startRun({ appSessionId: 'external-app', provider: 'codex', providerSessionId: live.providerSessionId, connection: null, userId: null });
+      const managedEntries = (await sessionsService.listRunningSessions()).filter((entry) => entry.sessionId === 'external-app');
+      assert.equal(managedEntries.length, 1);
+      assert.equal(managedEntries[0].external, undefined);
+      await assert.rejects(() => sessionsService.forkSessionById('external-app'),
+        (error: Error & { code?: string }) => error.code === 'RUN_IN_PROGRESS');
+    });
+  } finally {
+    codexCliLivenessService.listSessions = originalList;
+    codexCliLivenessService.getSession = originalGet;
+    chatRunRegistry.clearAll();
+  }
 });
 
 test('app session names use at most four whole words from the initial message', { concurrency: false }, async () => {
