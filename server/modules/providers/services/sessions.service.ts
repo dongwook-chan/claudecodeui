@@ -7,6 +7,7 @@ import { broadcastSessionUpserted, chatRunRegistry } from '@/modules/websocket/i
 import { providerRegistry } from '@/modules/providers/provider.registry.js';
 import { listBusyClaudeCliSessions } from '@/modules/providers/services/claude-cli-liveness.service.js';
 import { providerCapabilitiesService } from '@/modules/providers/services/provider-capabilities.service.js';
+import { codexCliLivenessService } from '@/modules/providers/services/codex-cli-liveness.service.js';
 import { sessionHistoryCache } from '@/modules/providers/services/session-history-cache.service.js';
 import type {
   BackgroundTaskSummary,
@@ -30,9 +31,9 @@ import { AppError, createNormalizedMessage, sliceTailPage } from '@/shared/utils
  * rides along on both kinds whenever the session has any.
  *
  * A turn driven outside CloudCLI — the Claude CLI in the Shell view, or a
- * terminal the user opened themselves — is listed the same way, with
- * `canInterrupt: false` because there is no run here to abort, and a
- * `statusText` saying where the work is happening.
+ * terminal the user opened themselves — includes a status saying where it
+ * runs. A dedicated native Codex exec writer can be interrupted by its
+ * verified process id; shared app-servers and Claude CLI runs cannot.
  */
 type RunningSessionEntry = {
   sessionId: string;
@@ -40,7 +41,9 @@ type RunningSessionEntry = {
   startedAt: number;
   lastSeq: number;
   background?: true;
-  canInterrupt?: false;
+  canInterrupt?: boolean;
+  /** This writer survives a CloudCLI restart and must not receive a recovery turn. */
+  external?: true;
   statusText?: string;
   tasks?: BackgroundTaskSummary[];
 };
@@ -352,7 +355,48 @@ export const sessionsService = {
       runningById.set(session.session_id, entries[entries.length - 1]);
     }
 
+    for (const live of await codexCliLivenessService.listSessions()) {
+      const session = sessionsDb.getSessionByProviderSessionId(live.providerSessionId);
+      if (session?.provider !== 'codex' || runningById.has(session.session_id)) continue;
+      const entry: RunningSessionEntry = {
+        sessionId: session.session_id,
+        provider: 'codex',
+        startedAt: live.startedAt,
+        lastSeq: 0,
+        canInterrupt: live.canInterrupt,
+        external: true,
+        statusText: 'Running in the Codex CLI',
+      };
+      entries.push(entry);
+      runningById.set(entry.sessionId, entry);
+    }
+
     return entries;
+  },
+
+  /** Chat send/subscribe and fork consult the native writer even before the next sidebar poll. */
+  async getExternalSessionActivity(sessionId: string): Promise<RunningSessionEntry | null> {
+    const session = sessionsDb.getSessionById(sessionId);
+    if (session?.provider !== 'codex' || !session.provider_session_id) return null;
+    const live = await codexCliLivenessService.getSession(session.provider_session_id);
+    if (!live) return null;
+    return {
+      sessionId,
+      provider: 'codex',
+      startedAt: live.startedAt,
+      lastSeq: 0,
+      canInterrupt: live.canInterrupt,
+      external: true,
+      statusText: 'Running in the Codex CLI',
+    };
+  },
+
+  /** Chat abort stops only a verified dedicated external writer for this app session. */
+  async abortExternalSession(sessionId: string): Promise<boolean> {
+    const session = sessionsDb.getSessionById(sessionId);
+    return session?.provider === 'codex' && Boolean(session.provider_session_id)
+      ? codexCliLivenessService.abortSession(session.provider_session_id!)
+      : false;
   },
 
   /**
@@ -473,6 +517,13 @@ export const sessionsService = {
     }
 
     const provider = source.provider as LLMProvider;
+    const external = await this.getExternalSessionActivity(sessionId);
+    if (chatRunRegistry.isProcessing(sessionId) || external) {
+      throw new AppError('Wait for this session to finish or stop it before forking.', {
+        code: 'RUN_IN_PROGRESS',
+        statusCode: 409,
+      });
+    }
     const fork = providerRegistry.resolveProvider(provider).fork;
     if (!fork) {
       throw new AppError(`Sessions cannot be forked for provider "${provider}".`, {
