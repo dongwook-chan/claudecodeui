@@ -173,7 +173,10 @@ export function useChatRealtimeHandlers({
           if (!sid) return;
 
           if (msg.isProcessing) {
-            onSessionProcessing?.(sid);
+            onSessionProcessing?.(sid, {
+              ...(typeof msg.canInterrupt === 'boolean' ? { canInterrupt: msg.canInterrupt } : {}),
+              ...(typeof msg.statusText === 'string' ? { statusText: msg.statusText } : {}),
+            });
           } else {
             // Idle ack: ignore it if a newer request started after the
             // subscribe was sent — the ack describes the older state.
@@ -206,7 +209,9 @@ export function useChatRealtimeHandlers({
             // A refused stop request is not about the run: the task had
             // already settled, and idling here would drop a response in
             // flight on that session.
-            if (msg.code !== 'NO_SUCH_TASK' && msg.code !== 'TASK_ID_REQUIRED') {
+            if (msg.code === 'RUN_IN_PROGRESS') {
+              onSessionProcessing?.(sid);
+            } else if (msg.code !== 'NO_SUCH_TASK' && msg.code !== 'TASK_ID_REQUIRED' && msg.code !== 'ABORT_FAILED') {
               onSessionIdle?.(sid);
             }
             sessionStore.appendRealtime(sid, {
