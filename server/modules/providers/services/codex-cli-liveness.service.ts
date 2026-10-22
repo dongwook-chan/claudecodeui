@@ -3,6 +3,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
+import { getLinuxFileLockIdentity, parseLinuxExclusiveFileLocks } from '@/shared/index.js';
+
 type CodexCliSession = {
   providerSessionId: string;
   pid: number;
@@ -19,13 +21,6 @@ type LivenessOptions = {
 
 const THREAD_LOCK_NAME = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.lock$/i;
 const MAX_LOCK_FILES = 4096;
-
-/** Match Linux's device/inode lock identity, including extended device numbers. */
-function lockIdentity(device: bigint, inode: bigint): string {
-  const major = ((device >> 8n) & 0xfffn) | ((device >> 32n) & 0xfffff000n);
-  const minor = (device & 0xffn) | ((device >> 12n) & 0xffffff00n);
-  return `${major.toString(16)}:${minor.toString(16)}:${inode}`;
-}
 
 /** Providers uses this factory to inspect native writer locks; tests use isolated procfs fixtures. */
 export function createCodexCliLivenessService(options: LivenessOptions = {}) {
@@ -52,14 +47,7 @@ export function createCodexCliLivenessService(options: LivenessOptions = {}) {
       throw error;
     }
 
-    const holders = new Map<string, number>();
-    for (const line of locks.split('\n')) {
-      // A queued lock ("->"), shared lock, or stale file proves no ownership.
-      const match = /^\d+:\s+FLOCK\s+ADVISORY\s+WRITE\s+(\d+)\s+([\da-f]+):([\da-f]+):(\d+)\s+0\s+EOF\s*$/i.exec(line);
-      if (!match) continue;
-      const key = `${BigInt(`0x${match[2]}`).toString(16)}:${BigInt(`0x${match[3]}`).toString(16)}:${match[4]}`;
-      holders.set(key, Number(match[1]));
-    }
+    const holders = parseLinuxExclusiveFileLocks(locks);
 
     const sessions: CodexCliSession[] = [];
     const lockNames = names.filter((name) => THREAD_LOCK_NAME.test(name));
@@ -68,7 +56,7 @@ export function createCodexCliLivenessService(options: LivenessOptions = {}) {
       const providerSessionId = THREAD_LOCK_NAME.exec(name)![1];
       try {
         const lock = await fsp.stat(path.join(directory, name), { bigint: true });
-        const pid = holders.get(lockIdentity(lock.dev, lock.ino));
+        const pid = holders.get(getLinuxFileLockIdentity(lock.dev, lock.ino));
         if (!pid || pid <= 0) continue;
 
         const processDirectory = path.join(procRoot, String(pid));
