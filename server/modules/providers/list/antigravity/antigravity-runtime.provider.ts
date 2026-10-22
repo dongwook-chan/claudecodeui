@@ -158,7 +158,7 @@ export function resolveAntigravityPermissionArgs(permissionMode: unknown): strin
   }
 }
 
-/** Runs one AGY prompt and owns its provider-specific process lifecycle. */
+/** Runs one AGY turn through agyx so its managed launcher owns recovery and child signals. */
 async function runAntigravity(
   command: string,
   options: AnyRecord,
@@ -234,7 +234,7 @@ async function runAntigravity(
     throw resolvedError;
   }
 
-  const args: string[] = [];
+  const args: string[] = ['session', '--'];
   if (providerSessionId) {
     args.push('--conversation', providerSessionId);
   }
@@ -244,14 +244,20 @@ async function runAntigravity(
   args.push(...resolveAntigravityPermissionArgs(options.permissionMode));
   args.push('--print', flattenPromptForWindowsShell(command.trim()));
 
+  const cliEnvironment = buildProviderCliEnv();
+  if (process.env.AGY_CLI_PATH?.trim()) {
+    // Keep native CLI overrides behind the supervisor rather than bypassing it.
+    cliEnvironment.AGYX_REAL_AGY = resolveConfiguredCliExecutable(process.env.AGY_CLI_PATH, 'agy');
+  }
+
   return new Promise((resolve, reject) => {
     const antigravityProcess = dependencies.spawnProcess(
-      resolveConfiguredCliExecutable(process.env.AGY_CLI_PATH, 'agy'),
+      resolveConfiguredCliExecutable(process.env.AGYX_CLI_PATH, 'agyx'),
       args,
       {
         cwd: workingDirectory,
         stdio: ['pipe', 'pipe', 'pipe'],
-        env: buildProviderCliEnv(),
+        env: cliEnvironment,
       },
     ) as AntigravityProcess;
     let stderrBuffer = '';
