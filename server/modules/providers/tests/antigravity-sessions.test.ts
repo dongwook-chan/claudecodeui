@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { appendFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -9,6 +9,7 @@ import Database from 'better-sqlite3';
 import { closeConnection, initializeDatabase, sessionsDb } from '@/modules/database/index.js';
 import { AntigravitySessionSynchronizer } from '@/modules/providers/list/antigravity/antigravity-session-synchronizer.provider.js';
 import { AntigravitySessionsProvider } from '@/modules/providers/list/antigravity/antigravity-sessions.provider.js';
+import { broadcastSessionUpserted, connectedClients, WS_OPEN_STATE } from '@/modules/websocket/index.js';
 
 const patchHomeDir = (nextHomeDir: string) => {
   const original = os.homedir;
@@ -122,6 +123,92 @@ test('Antigravity synchronizer indexes transcript rows from history metadata', {
       assert.equal(session?.project_path, workspacePath);
       assert.equal(session?.jsonl_path, transcriptPath);
       assert.equal(session?.custom_name, 'Fix Antigravity history');
+    });
+  } finally {
+    restoreHomeDir();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('Antigravity app transcript changes update the owning row and sidebar without history metadata', { concurrency: false }, async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'antigravity-app-sync-'));
+  const restoreHomeDir = patchHomeDir(tempRoot);
+  try {
+    const transcriptPath = await writeAntigravityTranscript(tempRoot, 'agy-app-native');
+    await withIsolatedDatabase(async () => {
+      const workspace = path.join(tempRoot, 'workspace');
+      sessionsDb.createAppSession('agy-app', 'antigravity', workspace, 'Keep app title');
+      sessionsDb.assignProviderSessionId('agy-app', 'agy-app-native');
+      const synchronizer = new AntigravitySessionSynchronizer();
+      const modified = new Date(Date.now() + 60_000);
+      await utimes(transcriptPath, modified, modified);
+      assert.equal(await synchronizer.synchronizeFile(transcriptPath), 'agy-app');
+      const row = sessionsDb.getSessionById('agy-app');
+      assert.equal(row?.project_path, workspace);
+      assert.equal(row?.custom_name, 'Keep app title');
+      assert.equal(row?.jsonl_path, transcriptPath);
+      assert.equal(row?.updated_at, (await stat(transcriptPath)).mtime.toISOString());
+      assert.equal(sessionsDb.getSessionById('agy-app-native'), null);
+
+      const frames: string[] = [];
+      const client = { readyState: WS_OPEN_STATE, send: (payload: string) => frames.push(payload) };
+      connectedClients.add(client as never);
+      try {
+        await broadcastSessionUpserted('agy-app');
+        const event = JSON.parse(frames.at(-1)!);
+        assert.equal(event.sessionId, 'agy-app');
+        assert.equal(event.session.lastActivity, row?.updated_at);
+        assert.equal(event.project.path, workspace);
+      } finally {
+        connectedClients.delete(client as never);
+      }
+
+      // Tool metadata may refer to a child directory rather than the workspace.
+      await appendFile(transcriptPath, `${JSON.stringify({
+        type: 'LIST_DIRECTORY', content: 'File Path: `file:///unrelated/subdirectory`',
+      })}\n`);
+      await synchronizer.synchronizeFile(transcriptPath);
+      assert.equal(sessionsDb.getSessionById('agy-app')?.project_path, workspace);
+    });
+  } finally {
+    restoreHomeDir();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('Antigravity incremental scans recover resumed transcripts created before the scan cursor', { concurrency: false }, async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'antigravity-resumed-sync-'));
+  const restoreHomeDir = patchHomeDir(tempRoot);
+  try {
+    const transcriptPath = await writeAntigravityTranscript(tempRoot, 'agy-resumed-native');
+    const born = (await stat(transcriptPath)).birthtimeMs;
+    const cursor = new Date(born + 60_000);
+    const modified = new Date(born + 120_000);
+    await withIsolatedDatabase(async () => {
+      sessionsDb.createAppSession('agy-resumed-app', 'antigravity', path.join(tempRoot, 'workspace'));
+      sessionsDb.assignProviderSessionId('agy-resumed-app', 'agy-resumed-native');
+      const synchronizer = new AntigravitySessionSynchronizer();
+      assert.equal(await synchronizer.synchronize(cursor), 0);
+      await appendFile(transcriptPath, `${JSON.stringify({ source: 'USER_EXPLICIT', type: 'USER_INPUT', content: 'continue' })}\n`);
+      await utimes(transcriptPath, modified, modified);
+      assert.equal(await synchronizer.synchronize(cursor), 1);
+      assert.equal(sessionsDb.getSessionById('agy-resumed-app')?.updated_at, (await stat(transcriptPath)).mtime.toISOString());
+      assert.equal(await synchronizer.synchronize(new Date(modified.getTime() + 1000)), 0);
+    });
+  } finally {
+    restoreHomeDir();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('Antigravity does not guess the workspace for an unknown transcript without metadata', { concurrency: false }, async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'antigravity-unmapped-sync-'));
+  const restoreHomeDir = patchHomeDir(tempRoot);
+  try {
+    const transcriptPath = await writeAntigravityTranscript(tempRoot, 'agy-unmapped-native');
+    await withIsolatedDatabase(async () => {
+      assert.equal(await new AntigravitySessionSynchronizer().synchronizeFile(transcriptPath), null);
+      assert.equal(sessionsDb.getSessionById('agy-unmapped-native'), null);
     });
   } finally {
     restoreHomeDir();
