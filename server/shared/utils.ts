@@ -1109,11 +1109,11 @@ export function sanitizeLeafDirectoryName(inputName: string, label = 'directory 
  * Recursively discovers files that match one extension, with optional incremental filtering.
  *
  * Provider synchronizers call this to find transcript artifacts under provider
- * home directories. Pass `lastScanAt` to include only files created after the
+ * home directories. Pass `lastScanAt` to include files modified after the
  * previous scan, or pass `null` to perform a full rescan. Missing directories
  * are treated as empty because not every provider exists on every machine.
  */
-export async function findFilesRecursivelyCreatedAfter(
+export async function findFilesRecursivelyModifiedAfter(
   rootDir: string,
   extension: string,
   lastScanAt: Date | null,
@@ -1125,7 +1125,7 @@ export async function findFilesRecursivelyCreatedAfter(
       const fullPath = path.join(rootDir, entry.name);
 
       if (entry.isDirectory()) {
-        await findFilesRecursivelyCreatedAfter(fullPath, extension, lastScanAt, fileList);
+        await findFilesRecursivelyModifiedAfter(fullPath, extension, lastScanAt, fileList);
         continue;
       }
 
@@ -1139,7 +1139,7 @@ export async function findFilesRecursivelyCreatedAfter(
       }
 
       const fileStat = await stat(fullPath);
-      if (fileStat.birthtime > lastScanAt) {
+      if (fileStat.mtime > lastScanAt) {
         fileList.push(fullPath);
       }
     }
