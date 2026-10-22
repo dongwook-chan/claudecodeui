@@ -143,7 +143,8 @@ test('Antigravity streams stdout before exit and captures a new provider session
   assert.equal(messages.some((message) => message.kind === 'session_created'), true);
   assert.equal(messages.filter((message) => message.kind === 'complete').length, 1);
   assert.deepEqual(capturedArgs.slice(-2), ['--print', 'Hi']);
-  assert.equal(capturedCommand, 'agy');
+  assert.equal(capturedCommand, 'agyx');
+  assert.deepEqual(capturedArgs.slice(0, 2), ['session', '--']);
   assert.equal(capturedArgs.includes('--conversation'), false);
   assert.equal(capturedCwd, '/workspace');
 });
@@ -174,13 +175,15 @@ test('Antigravity hides wait markers split across stdout chunks', async () => {
   assert.equal(messages.filter((message) => message.kind === 'complete').length, 1);
 });
 
-test('Antigravity runtime uses the configured AGY executable', { concurrency: false }, async () => {
+test('Antigravity keeps the configured native AGY executable behind agyx', { concurrency: false }, async () => {
   const previousPath = process.env.AGY_CLI_PATH;
   const child = createFakeProcess();
   let capturedCommand = '';
+  let capturedEnvironment: NodeJS.ProcessEnv = {};
   const runtime = createAntigravityRuntime({
-    spawnProcess: (command) => {
+    spawnProcess: (command, _args, options) => {
       capturedCommand = command;
+      capturedEnvironment = options.env;
       queueMicrotask(() => child.emit('close', 0, null));
       return child as never;
     },
@@ -190,13 +193,49 @@ test('Antigravity runtime uses the configured AGY executable', { concurrency: fa
   try {
     process.env.AGY_CLI_PATH = '  "/opt/agent wrappers/agy"  ';
     await runtime.run('Hi', {}, createWriter().writer, createRuntimeContext());
-    assert.equal(capturedCommand, '/opt/agent wrappers/agy');
+    assert.equal(capturedCommand, 'agyx');
+    assert.equal(capturedEnvironment.AGYX_REAL_AGY, '/opt/agent wrappers/agy');
   } finally {
     if (previousPath === undefined) {
       delete process.env.AGY_CLI_PATH;
     } else {
       process.env.AGY_CLI_PATH = previousPath;
     }
+  }
+});
+
+test('Antigravity supports a configured agyx path without changing the resumed turn', { concurrency: false }, async () => {
+  const previousPath = process.env.AGYX_CLI_PATH;
+  const child = createFakeProcess();
+  let capturedCommand = '';
+  let capturedArgs: string[] = [];
+  const runtime = createAntigravityRuntime({
+    spawnProcess: (command, args) => {
+      capturedCommand = command;
+      capturedArgs = args;
+      queueMicrotask(() => child.emit('close', 0, null));
+      return child as never;
+    },
+    readConversationDbFiles: async () => [],
+  });
+
+  try {
+    process.env.AGYX_CLI_PATH = '  "/opt/agent wrappers/agyx"  ';
+    await runtime.run(
+      'continue\nCheck existing files first.',
+      { sessionId: 'app-resume', model: 'gemini-3.8-flash-high', permissionMode: 'plan' },
+      createWriter().writer,
+      createRuntimeContext({ resolveProviderSessionId: () => 'native-resume' }),
+    );
+    assert.equal(capturedCommand, '/opt/agent wrappers/agyx');
+    assert.deepEqual(capturedArgs, [
+      'session', '--', '--conversation', 'native-resume',
+      '--model', 'gemini-3.8-flash-high', '--mode', 'plan',
+      '--print', 'continue\nCheck existing files first.',
+    ]);
+  } finally {
+    if (previousPath === undefined) delete process.env.AGYX_CLI_PATH;
+    else process.env.AGYX_CLI_PATH = previousPath;
   }
 });
 
