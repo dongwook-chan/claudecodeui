@@ -14,9 +14,15 @@ export type { CustomProviderModelEffort, CustomProviderModelInput, LLMProvider, 
 export { AppError, asyncHandler, createApiSuccessResponse, SIDE_QUESTION_ID_PATTERN } from './utils.js';
 
 // Providers uses the shared history and runtime summary contracts through this barrel.
-export type { BackgroundTaskSummary, ClearedContextSegment, FetchHistoryOptions, FetchHistoryResult, NormalizedMessage, WorkflowAgentActivity } from './types.js';
-export { sliceTailPage } from './utils.js';
+export type { AuthenticatedWebSocketRequest, BackgroundTaskSummary, ClearedContextSegment, FetchHistoryOptions, FetchHistoryResult, NormalizedMessage, ProviderPermissionDecision, WorkflowAgentActivity } from './types.js';
+export { parseIncomingJsonObject, sliceTailPage } from './utils.js';
 
 // Session persistence uses canonical path normalization and fork/history metadata.
 export { normalizeProjectPath } from './utils.js';
 export type { SessionForkAncestor } from './types.js';
+
+// External session detection uses these helpers to identify live CLI locks.
+export { getLinuxFileLockIdentity, parseLinuxExclusiveFileLocks } from './utils.js';
+// WebSocket and provider runtimes share normalized attachment descriptors.
+export type { ChatAttachmentDescriptor } from './image-attachments.js';
+export { getGlobalImageAssetsDir, isImageAttachmentDescriptor, normalizeAttachmentDescriptors } from './image-attachments.js';

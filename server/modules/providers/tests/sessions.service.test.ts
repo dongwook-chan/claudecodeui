@@ -7,6 +7,7 @@ import test from 'node:test';
 import { closeConnection, initializeDatabase, projectsDb, sessionsDb } from '@/modules/database/index.js';
 import { providerRegistry } from '@/modules/providers/provider.registry.js';
 import { sessionsService } from '@/modules/providers/services/sessions.service.js';
+import { antigravityCliLivenessService } from '@/modules/providers/services/antigravity-cli-liveness.service.js';
 import { codexCliLivenessService } from '@/modules/providers/services/codex-cli-liveness.service.js';
 import { chatRunRegistry } from '@/modules/websocket/index.js';
 import type { IProvider } from '@/shared/interfaces.js';
@@ -459,4 +460,42 @@ test('an unreadable registry never fails the running-sessions poll', { concurren
       },
     );
   });
+});
+
+
+test('external Antigravity turns map to app ids, block forks and clear when idle', { concurrency: false }, async () => {
+  const originalList = antigravityCliLivenessService.listSessions;
+  const originalGet = antigravityCliLivenessService.getSession;
+  const live = { providerSessionId: 'native-antigravity', startedAt: 789, canInterrupt: false as const };
+  antigravityCliLivenessService.listSessions = async () => [live];
+  antigravityCliLivenessService.getSession = async () => live;
+  try {
+    await withIsolatedDatabase(async () => {
+      sessionsDb.createAppSession('external-agy-app', 'antigravity', '/tmp/external-agy');
+      sessionsDb.assignProviderSessionId('external-agy-app', live.providerSessionId);
+      const expected = {
+        sessionId: 'external-agy-app', provider: 'antigravity', startedAt: 789, lastSeq: 0,
+        canInterrupt: false, external: true, statusText: 'Running in the Antigravity CLI',
+      };
+      assert.deepEqual((await sessionsService.listRunningSessions()).find((entry) => entry.sessionId === expected.sessionId), expected);
+      assert.deepEqual(await sessionsService.getExternalSessionActivity(expected.sessionId), expected);
+      assert.equal(await sessionsService.abortExternalSession(expected.sessionId), false);
+      await assert.rejects(() => sessionsService.forkSessionById(expected.sessionId),
+        (error: Error & { code?: string }) => error.code === 'RUN_IN_PROGRESS');
+
+      chatRunRegistry.startRun({ appSessionId: expected.sessionId, provider: 'antigravity', providerSessionId: live.providerSessionId, connection: null, userId: null });
+      const managed = (await sessionsService.listRunningSessions()).filter((entry) => entry.sessionId === expected.sessionId);
+      assert.equal(managed.length, 1);
+      assert.equal(managed[0].external, undefined);
+      chatRunRegistry.clearAll();
+      antigravityCliLivenessService.listSessions = async () => [];
+      antigravityCliLivenessService.getSession = async () => null;
+      assert.equal(await sessionsService.getExternalSessionActivity(expected.sessionId), null);
+      assert.equal((await sessionsService.listRunningSessions()).some((entry) => entry.sessionId === expected.sessionId), false);
+    });
+  } finally {
+    antigravityCliLivenessService.listSessions = originalList;
+    antigravityCliLivenessService.getSession = originalGet;
+    chatRunRegistry.clearAll();
+  }
 });
