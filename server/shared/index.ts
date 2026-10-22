@@ -15,3 +15,6 @@ export { getGlobalImageAssetsDir, isImageAttachmentDescriptor, normalizeAttachme
 
 // WebSocket validates the same side-question ids as the providers dismiss route.
 export { SIDE_QUESTION_ID_PATTERN } from './utils.js';
+// Provider synchronizers use these shared filesystem and transcript metadata helpers.
+export { buildLookupMap, extractFirstValidJsonlData, findFilesRecursivelyModifiedAfter, normalizeSessionName, readFileTimestamps, readObjectRecord, readOptionalString } from './utils.js';
+export type { IProviderSessionSynchronizer } from './interfaces.js';
