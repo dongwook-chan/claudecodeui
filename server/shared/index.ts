@@ -12,3 +12,6 @@ export type { BackgroundTaskSummary, FetchHistoryOptions, FetchHistoryResult, LL
 export type { ChatAttachmentDescriptor } from './image-attachments.js';
 export { AppError, sliceTailPage, parseIncomingJsonObject } from './utils.js';
 export { getGlobalImageAssetsDir, isImageAttachmentDescriptor, normalizeAttachmentDescriptors } from './image-attachments.js';
+// Provider synchronizers use these shared filesystem and transcript metadata helpers.
+export { buildLookupMap, extractFirstValidJsonlData, findFilesRecursivelyModifiedAfter, normalizeSessionName, readFileTimestamps, readObjectRecord, readOptionalString } from './utils.js';
+export type { IProviderSessionSynchronizer } from './interfaces.js';
