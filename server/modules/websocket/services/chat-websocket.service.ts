@@ -10,17 +10,17 @@ import {
   getGlobalImageAssetsDir,
   isImageAttachmentDescriptor,
   normalizeAttachmentDescriptors,
-  type ChatAttachmentDescriptor,
-} from '@/shared/image-attachments.js';
+  createCompleteMessage,
+  parseIncomingJsonObject,
+} from '@/shared/index.js';
 import type {
   AnyRecord,
+  ChatAttachmentDescriptor,
   AuthenticatedWebSocketRequest,
   LLMProvider,
   ProviderPermissionDecision,
   ProviderRuntimeWriter,
-} from '@/shared/types.js';
-import { createCompleteMessage } from '@/shared/index.js';
-import { parseIncomingJsonObject } from '@/shared/utils.js';
+} from '@/shared/index.js';
 
 /**
  * Trust boundary for client-supplied image attachments: chat.send options come
@@ -241,8 +241,9 @@ async function dispatchRun(
 
   const external = await sessionsService.getExternalSessionActivity(sessionId);
   if (external && !chatRunRegistry.isProcessing(sessionId)) {
-    if (ws) sendProtocolError(ws, 'RUN_IN_PROGRESS', 'This session is running in the Codex CLI. Stop it or wait for it to finish.', sessionId);
-    return { started: false, error: 'A Codex CLI writer already owns this session.' };
+    const cliName = external.provider === 'antigravity' ? 'Antigravity' : 'Codex';
+    if (ws) sendProtocolError(ws, 'RUN_IN_PROGRESS', `This session is running in the ${cliName} CLI. Wait for it to finish or stop it in that CLI.`, sessionId);
+    return { started: false, error: `A ${cliName} CLI writer already owns this session.` };
   }
 
   const run = chatRunRegistry.startRun({
@@ -460,7 +461,7 @@ async function handleChatAbort(
       if (stopped) {
         sendJson(ws, createCompleteMessage({ provider: external.provider, sessionId, exitCode: 0, aborted: true }));
       } else {
-        sendProtocolError(ws, 'ABORT_FAILED', 'The external Codex writer could not be stopped.', sessionId);
+        sendProtocolError(ws, 'ABORT_FAILED', 'The external CLI writer could not be stopped. Stop it in its own CLI.', sessionId);
       }
       return;
     }
