@@ -96,3 +96,57 @@ test('external Codex ownership survives subscribe, rejects duplicate sends and s
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test('external Antigravity activity survives subscribe and rejects a second prompt without a receipt', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'external-antigravity-chat-'));
+  const previousDatabasePath = process.env.DATABASE_PATH;
+  const originalActivity = sessionsService.getExternalSessionActivity;
+  closeConnection();
+  process.env.DATABASE_PATH = path.join(directory, 'auth.db');
+  await initializeDatabase();
+  try {
+    sessionsDb.createAppSession('external-agy-app', 'antigravity', directory);
+    sessionsService.getExternalSessionActivity = async (sessionId) => ({
+      sessionId, provider: 'antigravity', startedAt: 1, lastSeq: 0,
+      canInterrupt: false, external: true, statusText: 'Running in the Antigravity CLI',
+    });
+    let started = false;
+    const connection = new FakeConnection();
+    handleChatConnection(connection as never, { user: { id: 1 } } as never, {
+      runtime: {
+        hasRuntime: () => true,
+        run: async () => { started = true; },
+        abort: async () => { throw new Error('Do not signal an interactive AGY process.'); },
+        stopBackgroundTask: async () => false,
+        hasBackgroundWork: () => false,
+        resolveToolApproval: () => {},
+        getPendingApprovalsForSession: () => [],
+      },
+    });
+    connection.emit('message', Buffer.from(JSON.stringify({
+      type: 'chat.subscribe', sessions: [{ sessionId: 'external-agy-app', lastSeq: 0 }],
+    })));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(connection.frames[0]?.isProcessing, true);
+    assert.equal(connection.frames[0]?.canInterrupt, false);
+    assert.equal(connection.frames[0]?.statusText, 'Running in the Antigravity CLI');
+
+    const clientSendId = '6e7df7e5-3a61-47c3-a604-b8b9e52c5852';
+    connection.emit('message', Buffer.from(JSON.stringify({
+      type: 'chat.send', sessionId: 'external-agy-app', content: 'follow-up', clientSendId,
+    })));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(started, false);
+    assert.equal(connection.frames.at(-1)?.code, 'RUN_IN_PROGRESS');
+    assert.match(String(connection.frames.at(-1)?.error), /Antigravity/);
+    assert.equal(sessionsDb.wasClientSendAccepted('external-agy-app', clientSendId), false);
+  } finally {
+    sessionsService.getExternalSessionActivity = originalActivity;
+    connectedClients.clear();
+    chatRunRegistry.clearAll();
+    closeConnection();
+    if (previousDatabasePath === undefined) delete process.env.DATABASE_PATH;
+    else process.env.DATABASE_PATH = previousDatabasePath;
+    await rm(directory, { recursive: true, force: true });
+  }
+});
