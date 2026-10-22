@@ -6,6 +6,7 @@ import { projectsDb, sessionsDb } from '@/modules/database/index.js';
 import { broadcastSessionUpserted, chatRunRegistry } from '@/modules/websocket/index.js';
 import { providerRegistry } from '@/modules/providers/provider.registry.js';
 import { listBusyClaudeCliSessions } from '@/modules/providers/services/claude-cli-liveness.service.js';
+import { antigravityCliLivenessService } from '@/modules/providers/services/antigravity-cli-liveness.service.js';
 import { codexCliLivenessService } from '@/modules/providers/services/codex-cli-liveness.service.js';
 import { sessionHistoryCache } from '@/modules/providers/services/session-history-cache.service.js';
 import type {
@@ -15,8 +16,8 @@ import type {
   LLMProvider,
   NormalizedMessage,
   WorkflowAgentActivity,
-} from '@/shared/types.js';
-import { AppError, sliceTailPage } from '@/shared/utils.js';
+} from '@/shared/index.js';
+import { AppError, sliceTailPage } from '@/shared/index.js';
 
 /**
  * One session the running-sessions poll reports as busy.
@@ -31,7 +32,7 @@ import { AppError, sliceTailPage } from '@/shared/utils.js';
  * A turn driven outside CloudCLI — the Claude CLI in the Shell view, or a
  * terminal the user opened themselves — includes a status saying where it
  * runs. A dedicated native Codex exec writer can be interrupted by its
- * verified process id; shared app-servers and Claude CLI runs cannot.
+ * verified process id; shared app-servers, Claude and Antigravity CLI runs cannot.
  */
 type RunningSessionEntry = {
   sessionId: string;
@@ -235,23 +236,43 @@ export const sessionsService = {
       runningById.set(entry.sessionId, entry);
     }
 
+    for (const live of await antigravityCliLivenessService.listSessions()) {
+      const session = sessionsDb.getSessionByProviderSessionId(live.providerSessionId);
+      if (session?.provider !== 'antigravity' || runningById.has(session.session_id)) continue;
+      const entry: RunningSessionEntry = {
+        sessionId: session.session_id,
+        provider: 'antigravity',
+        startedAt: live.startedAt,
+        lastSeq: 0,
+        canInterrupt: false,
+        external: true,
+        statusText: 'Running in the Antigravity CLI',
+      };
+      entries.push(entry);
+      runningById.set(entry.sessionId, entry);
+    }
+
     return entries;
   },
 
   /** Chat send/subscribe and fork consult the native writer even before the next sidebar poll. */
   async getExternalSessionActivity(sessionId: string): Promise<RunningSessionEntry | null> {
     const session = sessionsDb.getSessionById(sessionId);
-    if (session?.provider !== 'codex' || !session.provider_session_id) return null;
-    const live = await codexCliLivenessService.getSession(session.provider_session_id);
+    if (!session?.provider_session_id) return null;
+    const live = session.provider === 'codex'
+      ? await codexCliLivenessService.getSession(session.provider_session_id)
+      : session.provider === 'antigravity'
+        ? await antigravityCliLivenessService.getSession(session.provider_session_id)
+        : null;
     if (!live) return null;
     return {
       sessionId,
-      provider: 'codex',
+      provider: session.provider as LLMProvider,
       startedAt: live.startedAt,
       lastSeq: 0,
       canInterrupt: live.canInterrupt,
       external: true,
-      statusText: 'Running in the Codex CLI',
+      statusText: `Running in the ${session.provider === 'antigravity' ? 'Antigravity' : 'Codex'} CLI`,
     };
   },
 
