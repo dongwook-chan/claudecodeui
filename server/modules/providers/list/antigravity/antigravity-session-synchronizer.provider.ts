@@ -3,14 +3,14 @@ import path from 'node:path';
 import { readFile } from 'node:fs/promises';
 
 import { sessionsDb } from '@/modules/database/index.js';
-import type { IProviderSessionSynchronizer } from '@/shared/interfaces.js';
+import type { IProviderSessionSynchronizer } from '@/shared/index.js';
 import {
-  findFilesRecursivelyCreatedAfter,
+  findFilesRecursivelyModifiedAfter,
   normalizeSessionName,
   readFileTimestamps,
   readObjectRecord,
   readOptionalString,
-} from '@/shared/utils.js';
+} from '@/shared/index.js';
 
 const PROVIDER = 'antigravity' as const;
 const UNTITLED_ANTIGRAVITY_SESSION = 'Untitled Antigravity Session';
@@ -73,14 +73,14 @@ function extractAntigravityStepContent(rawLine: string): { projectPath?: string;
   }
 }
 
-/** Imports Antigravity transcript metadata into the shared sessions database. */
+/** The Providers module uses this to index Antigravity transcripts and resumed activity. */
 export class AntigravitySessionSynchronizer implements IProviderSessionSynchronizer {
   private readonly brainDir = path.join(os.homedir(), '.gemini', 'antigravity-cli', 'brain');
   private readonly historyPath = path.join(os.homedir(), '.gemini', 'antigravity-cli', 'history.jsonl');
 
   /** Scans changed AGY transcripts and upserts their shared session records. */
   async synchronize(since?: Date): Promise<number> {
-    const files = await findFilesRecursivelyCreatedAfter(this.brainDir, 'transcript.jsonl', since ?? null);
+    const files = await findFilesRecursivelyModifiedAfter(this.brainDir, 'transcript.jsonl', since ?? null);
 
     let processed = 0;
     for (const filePath of files) {
@@ -127,8 +127,14 @@ export class AntigravitySessionSynchronizer implements IProviderSessionSynchroni
     }
 
     const fromHistory = await this.readHistoryMetadata(sessionId);
+    const existingSession = sessionsDb.getSessionByProviderSessionId(sessionId);
     let firstUserMessage = fromHistory?.sessionName;
-    let projectPath = fromHistory?.projectPath;
+    // CloudCLI print-mode runs need not write history.jsonl or a directory/view
+    // step. Their app row already owns the workspace; a nested file viewed later
+    // must not move the conversation into another sidebar project.
+    let projectPath = existingSession?.provider === PROVIDER
+      ? readOptionalString(existingSession.project_path) ?? fromHistory?.projectPath
+      : fromHistory?.projectPath;
 
     try {
       const lines = (await readFile(filePath, 'utf8')).split(/\r?\n/);
