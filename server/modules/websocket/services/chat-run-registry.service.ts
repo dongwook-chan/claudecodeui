@@ -2,10 +2,12 @@ import { sessionsDb } from '@/modules/database/index.js';
 import { ChatSessionWriter } from '@/modules/websocket/services/chat-session-writer.service.js';
 import { broadcastSessionUpserted } from '@/modules/websocket/services/session-upsert-broadcast.service.js';
 import type {
+  AnyRecord,
   LLMProvider,
   NormalizedMessage,
   RealtimeClientConnection,
-} from '@/shared/types.js';
+  SessionResumeOptions,
+} from '@/shared/index.js';
 
 type ChatRunStatus = 'running' | 'completed';
 
@@ -33,7 +35,27 @@ type ChatRun = {
   writer: ChatSessionWriter;
   startedAt: number;
   completedAt: number | null;
+  resumeOptions?: SessionResumeOptions;
 };
+
+function captureResumeOptions(options: AnyRecord): SessionResumeOptions {
+  const snapshot: SessionResumeOptions = {};
+  for (const key of ['model', 'effort', 'permissionMode', 'cwd', 'projectPath', 'sessionSummary'] as const) {
+    if (typeof options[key] === 'string' && options[key].trim()) snapshot[key] = options[key];
+  }
+  if (typeof options.skipPermissions === 'boolean') snapshot.skipPermissions = options.skipPermissions;
+  const tools = options.toolsSettings;
+  if (tools && typeof tools === 'object' && !Array.isArray(tools)) {
+    snapshot.toolsSettings = {};
+    for (const key of ['allowedTools', 'disallowedTools', 'allowedShellCommands'] as const) {
+      if (Array.isArray(tools[key])) {
+        snapshot.toolsSettings[key] = tools[key].filter((entry: unknown): entry is string => typeof entry === 'string');
+      }
+    }
+    if (typeof tools.skipPermissions === 'boolean') snapshot.toolsSettings.skipPermissions = tools.skipPermissions;
+  }
+  return snapshot;
+}
 
 /**
  * How long a completed run stays available for replay. Covers the window
@@ -200,6 +222,7 @@ export const chatRunRegistry = {
      */
     connection: RealtimeClientConnection | null;
     userId: string | number | null;
+    resumeOptions?: AnyRecord;
   }): ChatRun | null {
     const existing = runs.get(input.appSessionId);
     if (existing && existing.status === 'running') {
@@ -216,6 +239,7 @@ export const chatRunRegistry = {
       writer: null as unknown as ChatSessionWriter,
       startedAt: Date.now(),
       completedAt: null,
+      resumeOptions: input.resumeOptions ? captureResumeOptions(input.resumeOptions) : undefined,
     };
 
     run.writer = new ChatSessionWriter({
@@ -246,6 +270,7 @@ export const chatRunRegistry = {
     provider: LLMProvider;
     startedAt: number;
     lastSeq: number;
+    resumeOptions?: SessionResumeOptions;
   }> {
     return Array.from(runs.values())
       .filter((run) => run.status === 'running')
@@ -254,6 +279,7 @@ export const chatRunRegistry = {
         provider: run.provider,
         startedAt: run.startedAt,
         lastSeq: run.lastSeq,
+        ...(run.resumeOptions ? { resumeOptions: structuredClone(run.resumeOptions) } : {}),
       }));
   },
 
