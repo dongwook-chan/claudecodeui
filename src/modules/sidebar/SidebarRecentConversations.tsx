@@ -1,4 +1,4 @@
-import { Loader2, MessageSquare } from 'lucide-react';
+import { Loader2, MessageSquare, Pin } from 'lucide-react';
 import type { MouseEvent } from 'react';
 import type { TFunction } from 'i18next';
 
@@ -7,8 +7,12 @@ import { cn } from '@/shared/utils';
 import type { ProjectSession, RecentConversationListItem, SessionRowActions } from '@/shared/types';
 import { formatCompactAge } from '@/modules/sidebar/utils/sidebarProjectFormatting';
 import SessionOptions from '@/modules/sidebar/SessionOptions';
+import { useSessionPins } from '@/modules/sidebar/hooks/useSessionPins';
 
 type SidebarRecentConversationsProps = {
+  listKind?: 'recent' | 'pinned';
+  /** Only remove pinned duplicates while SidebarContent is actually showing the pinned section. */
+  excludePinned?: boolean;
   conversations: RecentConversationListItem[];
   total: number;
   hasMore: boolean;
@@ -50,6 +54,8 @@ function RecentConversationSkeleton() {
 
 /** Rendered by SidebarContent in the recents search mode to list recently active sessions across all projects. */
 export default function SidebarRecentConversations({
+  listKind = 'recent',
+  excludePinned = false,
   conversations,
   total,
   hasMore,
@@ -64,6 +70,11 @@ export default function SidebarRecentConversations({
   onRetry,
   t,
 }: SidebarRecentConversationsProps) {
+  const pins = useSessionPins();
+  const isPinnedList = listKind === 'pinned';
+  const visibleConversations = isPinnedList || !pins || !excludePinned
+    ? conversations
+    : conversations.filter((conversation) => !pins.pinnedIds.has(conversation.sessionId));
   if (isLoading && conversations.length === 0) {
     return <RecentConversationSkeleton />;
   }
@@ -82,6 +93,10 @@ export default function SidebarRecentConversations({
     );
   }
 
+  if (!isPinnedList && excludePinned && pins && pins.sessions.length > 0 && visibleConversations.length === 0 && !hasMore) {
+    return null;
+  }
+
   if (conversations.length === 0) {
     return (
       <div className="px-4 py-10 text-center">
@@ -97,16 +112,19 @@ export default function SidebarRecentConversations({
   }
 
   return (
-    <div className="px-1" data-testid="recent-conversations-list">
+    <div className="px-1" data-testid={isPinnedList ? 'pinned-conversations-list' : 'recent-conversations-list'}>
       <div className="flex items-center justify-between px-2 pb-1.5 pt-0.5">
-        <span className="text-[11px] font-medium text-muted-foreground">
-          {t('recent.title', 'Recent conversations')}
+        <span className={cn('flex items-center gap-1.5 text-[11px] font-medium', isPinnedList ? 'text-primary' : 'text-muted-foreground')}>
+          {isPinnedList && <Pin className="h-3 w-3" />}
+          {isPinnedList ? t('pinned.title', 'Pinned sessions') : t('recent.title', 'Recent conversations')}
         </span>
-        <span className="text-[10px] tabular-nums text-muted-foreground/70">{total}</span>
+        <span className="text-[10px] tabular-nums text-muted-foreground/70">
+          {isPinnedList || !excludePinned ? total : Math.max(0, total - (pins?.sessions.length ?? 0))}
+        </span>
       </div>
 
       <div className="space-y-0.5">
-        {conversations.map((conversation) => {
+        {visibleConversations.map((conversation) => {
           const isSelected = String(selectedSession?.id ?? '') === conversation.sessionId;
           const age = formatCompactAge(conversation.lastActivity, currentTime);
           const hasBackgroundWork = sessionActions.backgroundSessionIds.has(conversation.sessionId);
@@ -157,7 +175,8 @@ export default function SidebarRecentConversations({
                 onClick={handleClick}
                 data-testid="recent-conversation-row"
                 className={cn(
-                  'flex min-w-0 items-center gap-2 rounded-lg px-2 py-2 pr-11 text-left transition-colors',
+                  'flex min-w-0 items-center gap-2 rounded-lg px-2 py-2 text-left transition-colors',
+                  pins ? 'pr-[4.5rem]' : 'pr-11',
                   isSelected
                     ? 'bg-primary/10 text-foreground'
                     : 'text-foreground hover:bg-accent/60',
@@ -209,6 +228,7 @@ export default function SidebarRecentConversations({
               </a>
 
               <SessionOptions
+                pinShortcut={isPinnedList}
                 className="absolute right-2 top-1/2 -translate-y-1/2 transform"
                 sessionId={conversation.sessionId}
                 sessionName={conversation.sessionTitle}
