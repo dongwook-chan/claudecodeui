@@ -246,12 +246,18 @@ async function dispatchRun(
     return { started: false, error: `A ${cliName} CLI writer already owns this session.` };
   }
 
+  const clientOptions = (data.options ?? {}) as AnyRecord;
   const run = chatRunRegistry.startRun({
     appSessionId: sessionId,
     provider,
     providerSessionId: session.provider_session_id,
     connection: ws,
     userId,
+    resumeOptions: {
+      ...clientOptions,
+      cwd: clientOptions.cwd ?? session.project_path ?? undefined,
+      projectPath: session.project_path ?? clientOptions.projectPath,
+    },
   });
 
   if (!run) {
@@ -268,7 +274,6 @@ async function dispatchRun(
 
   let failure: string | null = null;
   try {
-    const clientOptions = (data.options ?? {}) as AnyRecord;
     const command = typeof data.content === 'string' ? data.content : '';
 
     // Record what this turn runs with so reopening the session later restores the
