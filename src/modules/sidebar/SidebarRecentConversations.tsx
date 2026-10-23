@@ -57,7 +57,6 @@ export default function SidebarRecentConversations({
   listKind = 'recent',
   excludePinned = false,
   conversations,
-  total,
   hasMore,
   isLoading,
   isLoadingMore,
@@ -113,17 +112,6 @@ export default function SidebarRecentConversations({
 
   return (
     <div className="px-1" data-testid={isPinnedList ? 'pinned-conversations-list' : 'recent-conversations-list'}>
-      {!isPinnedList && (
-        <div className="flex items-center justify-between px-2 pb-1.5 pt-0.5">
-          <span className="text-[11px] font-medium text-muted-foreground">
-            {t('recent.title', 'Recent conversations')}
-          </span>
-          <span className="text-[10px] tabular-nums text-muted-foreground/70">
-            {!excludePinned ? total : Math.max(0, total - (pins?.sessions.length ?? 0))}
-          </span>
-        </div>
-      )}
-
       <div className="space-y-0.5">
         {visibleConversations.map((conversation) => {
           const isSelected = String(selectedSession?.id ?? '') === conversation.sessionId;
