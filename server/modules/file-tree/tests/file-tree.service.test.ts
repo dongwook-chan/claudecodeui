@@ -506,28 +506,72 @@ test('the temp directory can be browsed and read, but never written to', async (
   }
 });
 
-test('reading through a symlink out of the temp directory is still refused', async () => {
+test('absolute file links can read through a symlink out of the temp directory', async () => {
   const temporaryDirectory = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'file-tree-tmp-'));
   const projectRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'file-tree-project-'));
-  // The link target has to sit under no read-only root. Beside this file is
-  // deterministic; a directory under `$HOME` lands under `/tmp` whenever a
-  // test run isolates its home there, and the Claude projects directory is a
-  // read-only root too.
+  // The link target sits outside the project and the old read-only roots.
   const outsideDirectory = await fsPromises.mkdtemp(path.join(testDirectory, 'file-tree-outside-'));
 
   try {
     assert.equal(await resolveReadOnlyRootPath(outsideDirectory), null);
-    await fsPromises.writeFile(path.join(outsideDirectory, 'secret.txt'), 'secret', 'utf8');
+    await fsPromises.writeFile(path.join(outsideDirectory, 'report.txt'), 'linked report', 'utf8');
     await fsPromises.symlink(outsideDirectory, path.join(temporaryDirectory, 'escape'));
 
     const service = createRealFileSystemService(projectRoot);
-    await assert.rejects(
-      service.readTextFile('project-1', path.join(temporaryDirectory, 'escape', 'secret.txt')),
-      (error: unknown) => (error as AppError).code === 'PATH_OUTSIDE_PROJECT',
-    );
+    const linkedPath = path.join(temporaryDirectory, 'escape', 'report.txt');
+    const result = await service.readTextFile('project-1', linkedPath);
+    assert.deepEqual(result, { path: linkedPath, content: 'linked report' });
+    const file = await service.openFile('project-1', linkedPath);
+    let streamedContent = '';
+    for await (const chunk of file.stream) streamedContent += chunk.toString();
+    assert.equal(streamedContent, 'linked report');
   } finally {
     await fsPromises.rm(temporaryDirectory, { recursive: true, force: true });
     await fsPromises.rm(projectRoot, { recursive: true, force: true });
     await fsPromises.rm(outsideDirectory, { recursive: true, force: true });
+  }
+});
+
+test('absolute skill links read and stream files outside the project without permitting writes', async () => {
+  const fixtureDirectory = await fsPromises.mkdtemp(path.join(testDirectory, 'file-tree-skills-'));
+  const projectRoot = path.join(fixtureDirectory, 'project');
+  const skillDirectory = path.join(fixtureDirectory, '.codex', 'skills', 'references');
+  const fileName = 'production review 한글.ko.md';
+  const skillPath = path.join(skillDirectory, fileName);
+  const skillContent = '# Production review\n프로젝트 밖 스킬 문서\n';
+
+  try {
+    await fsPromises.mkdir(projectRoot);
+    await fsPromises.mkdir(skillDirectory, { recursive: true });
+    await fsPromises.writeFile(skillPath, skillContent, 'utf8');
+    await fsPromises.writeFile(path.join(projectRoot, fileName), 'project document', 'utf8');
+    assert.equal(await resolveReadOnlyRootPath(skillPath), null);
+
+    const service = createRealFileSystemService(projectRoot);
+    assert.deepEqual(await service.readTextFile('project-1', skillPath), {
+      path: skillPath,
+      content: skillContent,
+    });
+    const file = await service.openFile('project-1', skillPath);
+    let streamedContent = '';
+    for await (const chunk of file.stream) streamedContent += chunk.toString();
+    assert.equal(streamedContent, skillContent);
+    assert.equal((await service.readTextFile('project-1', fileName)).content, 'project document');
+
+    await assert.rejects(
+      service.readTextFile('project-1', path.join(skillDirectory, 'missing.md')),
+      (error: unknown) => error instanceof AppError && error.statusCode === 404,
+    );
+    await assert.rejects(
+      service.saveTextFile('project-1', skillPath, 'overwritten'),
+      (error: unknown) => error instanceof AppError && error.code === 'PATH_OUTSIDE_PROJECT',
+    );
+    await assert.rejects(
+      service.deleteEntry({ projectId: 'project-1', targetPath: skillPath }),
+      (error: unknown) => error instanceof AppError && error.code === 'PATH_OUTSIDE_PROJECT',
+    );
+    assert.equal(await fsPromises.readFile(skillPath, 'utf8'), skillContent);
+  } finally {
+    await fsPromises.rm(fixtureDirectory, { recursive: true, force: true });
   }
 });
