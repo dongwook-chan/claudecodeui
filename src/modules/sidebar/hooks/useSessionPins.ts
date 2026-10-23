@@ -8,9 +8,6 @@ export type SessionPinsState = {
   ready: boolean;
   hasError: boolean;
   pendingSessionId: string | null;
-  /** A pinned shortcut and its original row must never open two rename editors at once. */
-  renameSource: 'pinned' | 'project';
-  setRenameSource: (source: 'pinned' | 'project') => void;
   refresh: () => Promise<void>;
   setPinned: (sessionId: string, isPinned: boolean) => Promise<void>;
 };
