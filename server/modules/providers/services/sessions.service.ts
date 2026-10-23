@@ -17,6 +17,7 @@ import type {
   FetchHistoryResult,
   LLMProvider,
   NormalizedMessage,
+  SessionResumeOptions,
   WorkflowAgentActivity,
 } from '@/shared/index.js';
 import { AppError, createNormalizedMessage, sliceTailPage } from '@/shared/index.js';
@@ -47,6 +48,8 @@ type RunningSessionEntry = {
   external?: true;
   statusText?: string;
   tasks?: BackgroundTaskSummary[];
+  /** Deployment recovery reuses the run's explicit permissions and launch context. */
+  resumeOptions?: SessionResumeOptions;
 };
 
 type CreateAppSessionResult = {
@@ -324,13 +327,15 @@ export const sessionsService = {
           running.tasks = tasks;
           continue;
         }
+        const retainedRun = chatRunRegistry.getRun(sessionId);
         entries.push({
           sessionId,
           provider: provider.id,
           startedAt: Math.min(...tasks.map((task) => task.startedAt)),
           // The completed run stays in the registry for a while, and a client
           // that subscribes with its lastSeq replays the tail it missed.
-          lastSeq: chatRunRegistry.getRun(sessionId)?.lastSeq ?? 0,
+          lastSeq: retainedRun?.lastSeq ?? 0,
+          ...(retainedRun?.resumeOptions ? { resumeOptions: structuredClone(retainedRun.resumeOptions) } : {}),
           background: true,
           canInterrupt: false,
           tasks,
