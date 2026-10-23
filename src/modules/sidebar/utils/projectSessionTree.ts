@@ -14,7 +14,8 @@ type TreeNode = {
  * position, and parents always precede children. Ancestor hints fill page gaps,
  * while actual page rows take precedence over their older context snapshots.
  */
-export function buildProjectSessionTree(sessions: SessionWithProvider[], projectId: string) {
+export function buildProjectSessionTree(sessions: SessionWithProvider[], projectId: string, pinnedIds: readonly string[] = []) {
+  const pinRanks = new Map(pinnedIds.map((id, rank) => [id, rank]));
   const nodes = new Map<string, TreeNode>();
   sessions.forEach((session, rank) => {
     if (!nodes.has(session.id)) {
@@ -47,7 +48,11 @@ export function buildProjectSessionTree(sessions: SessionWithProvider[], project
 
   for (const node of nodes.values()) {
     const parent = nodes.get(node.session.forkedFromSessionId ?? '');
-    if (parent && parent !== node && parent.session.__provider === node.session.__provider) {
+    // Pins occupy the first rows independently of collapsed fork branches.
+    // Detach their children too, so every pin precedes every unpinned row.
+    // Only this projection changes; unpinning restores the stored ancestry.
+    if (parent && parent !== node && parent.session.__provider === node.session.__provider
+      && !pinRanks.has(node.session.id) && !pinRanks.has(parent.session.id)) {
       node.parentId = parent.session.id;
     }
   }
@@ -91,7 +96,14 @@ export function buildProjectSessionTree(sessions: SessionWithProvider[], project
     }
     node.children.sort((a, b) => a.rank - b.rank);
   }
-  roots.sort((a, b) => a.rank - b.rank);
+  roots.sort((a, b) => {
+    const aPin = pinRanks.get(a.session.id);
+    const bPin = pinRanks.get(b.session.id);
+    if (aPin !== undefined || bPin !== undefined) {
+      return aPin === undefined ? 1 : bPin === undefined ? -1 : aPin - bPin;
+    }
+    return a.rank - b.rank;
+  });
 
   const rows: { session: SessionWithProvider; parentId: string | null; depth: number; hasChildren: boolean; isLastSibling: boolean }[] = [];
   const stack = roots.map((node, index) => ({ node, depth: 0, isLastSibling: index === roots.length - 1 })).reverse();
