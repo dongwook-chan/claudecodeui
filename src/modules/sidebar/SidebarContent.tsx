@@ -213,6 +213,7 @@ export default function SidebarContent({
       <ScrollArea className="flex-1 overflow-y-auto overscroll-contain md:px-1.5 md:py-2">
         {(searchMode === 'projects' || searchMode === 'conversations') && !searchFilter.trim() && (
           <SidebarPinnedSessions
+            showSessions={searchMode === 'conversations'}
             selectedSession={projectListProps.selectedSession}
             currentTime={projectListProps.currentTime}
             sessionActions={projectListProps}
