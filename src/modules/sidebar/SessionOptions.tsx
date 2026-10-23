@@ -8,6 +8,8 @@ import type { LLMProvider } from '@/shared/types';
 import { useSessionForkingProviders } from '@/shared/hooks/useProviderCapabilities';
 import { useProviderSessionIdCopy } from '@/modules/sidebar/hooks/useProviderSessionIdCopy';
 import { PROVIDER_LABELS } from '@/modules/sidebar/utils/sidebarProjectFormatting';
+import SessionPinButton from '@/modules/sidebar/SessionPinButton';
+import { useSessionPins } from '@/modules/sidebar/hooks/useSessionPins';
 
 type SessionOptionsProps = {
   sessionId: string;
@@ -32,6 +34,7 @@ type SessionOptionsProps = {
   onFork?: () => void;
   /** Withheld where the row has nowhere to send an archive or delete. */
   canDelete?: boolean;
+  pinShortcut?: boolean;
   className?: string;
   t: TFunction;
 };
@@ -62,10 +65,14 @@ export default function SessionOptions({
   onDeleteSession,
   onFork,
   canDelete = true,
+  pinShortcut = false,
   className,
   t,
 }: SessionOptionsProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const pins = useSessionPins();
+  const renameSource = pinShortcut ? 'pinned' : 'project';
+  const showRename = isEditing && (!pins?.pinnedIds.has(sessionId) || pins.renameSource === renameSource);
   const providerLabel = PROVIDER_LABELS[provider];
   const { copyState, copyLabel, setOptionsOpen, handleCopyAction, isCopyPending, CopyStateIcon } =
     useProviderSessionIdCopy(sessionId, providerLabel);
@@ -78,7 +85,7 @@ export default function SessionOptions({
   // While editing, dismiss only when the click lands outside the rename panel,
   // matching Escape and the cancel button.
   useEffect(() => {
-    if (!isEditing) {
+    if (!showRename) {
       return;
     }
 
@@ -91,7 +98,7 @@ export default function SessionOptions({
 
     document.addEventListener('mousedown', handlePointerDown);
     return () => document.removeEventListener('mousedown', handlePointerDown);
-  }, [isEditing, onCancelEditingSession]);
+  }, [showRename, onCancelEditingSession]);
 
   const saveRename = () => {
     if (projectId === null) {
@@ -103,7 +110,7 @@ export default function SessionOptions({
 
   return (
     <div ref={containerRef} className={cn('flex items-center gap-1', className)}>
-      {isEditing ? (
+      {showRename ? (
         <>
           <input
             type="text"
@@ -143,6 +150,8 @@ export default function SessionOptions({
           </button>
         </>
       ) : (
+        <>
+        <SessionPinButton sessionId={sessionId} sessionName={sessionName} t={t} />
         <ActionMenu
           label="Session options"
           ariaLabel={`Session options for ${sessionName}`}
@@ -167,7 +176,10 @@ export default function SessionOptions({
               key: 'rename',
               label: 'Rename session',
               icon: Edit2,
-              onSelect: () => onStartEditingSession(projectId, sessionId, sessionName),
+              onSelect: () => {
+                pins?.setRenameSource(renameSource);
+                onStartEditingSession(projectId, sessionId, sessionName);
+              },
             }] : []),
             {
               key: 'copy',
@@ -200,6 +212,7 @@ export default function SessionOptions({
             }] : []),
           ]}
         />
+        </>
       )}
     </div>
   );
