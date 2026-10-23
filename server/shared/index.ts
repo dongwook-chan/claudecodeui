@@ -21,6 +21,9 @@ export { parseIncomingJsonObject, sliceTailPage } from './utils.js';
 export { normalizeProjectPath } from './utils.js';
 export type { SessionForkAncestor } from './types.js';
 
+// WebSocket and Providers expose explicit launch settings for deployment recovery.
+export type { RealtimeClientConnection, SessionResumeOptions } from './types.js';
+
 // External session detection uses these helpers to identify live CLI locks.
 export { getLinuxFileLockIdentity, parseLinuxExclusiveFileLocks } from './utils.js';
 // WebSocket and provider runtimes share normalized attachment descriptors.
