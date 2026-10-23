@@ -25,6 +25,14 @@ import { AppError, asyncHandler, createApiSuccessResponse, SIDE_QUESTION_ID_PATT
 
 const router = express.Router();
 
+function readPinUserId(req: Request): number {
+  const userId = Number((req as Request & { user?: { id?: unknown } }).user?.id);
+  if (!Number.isSafeInteger(userId) || userId <= 0) {
+    throw new AppError('Authentication is required.', { code: 'UNAUTHORIZED', statusCode: 401 });
+  }
+  return userId;
+}
+
 const readPathParam = (value: unknown, name: string): string => {
   if (typeof value === 'string') {
     return value;
@@ -938,6 +946,27 @@ router.get(
   '/sessions/archived',
   asyncHandler(async (_req: Request, res: Response) => {
     const sessions = sessionsService.listArchivedSessions();
+    res.json(createApiSuccessResponse({ sessions }));
+  }),
+);
+
+router.get(
+  '/sessions/pinned',
+  asyncHandler(async (req: Request, res: Response) => {
+    res.json(createApiSuccessResponse({ sessions: sessionsService.listPinnedSessions(readPinUserId(req)) }));
+  }),
+);
+
+router.put(
+  '/sessions/:sessionId/pin',
+  asyncHandler(async (req: Request, res: Response) => {
+    const userId = readPinUserId(req);
+    const sessionId = parseSessionId(req.params.sessionId);
+    const isPinned: unknown = req.body?.isPinned;
+    if (typeof isPinned !== 'boolean') {
+      throw new AppError('isPinned must be a boolean.', { code: 'INVALID_SESSION_PIN', statusCode: 400 });
+    }
+    const sessions = sessionsService.setSessionPinned(userId, sessionId, isPinned);
     res.json(createApiSuccessResponse({ sessions }));
   }),
 );
