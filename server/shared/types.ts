@@ -22,6 +22,29 @@ export type ApiSuccessShape<TData = unknown> = {
 export type AnyRecord = Record<string, any>;
 
 // ---------------------------
+//----------------- INTERRUPTED CHAT RECOVERY ------------
+/**
+ * WebSocket runs retain these explicit launch settings for the Providers
+ * running-session API and deployment recovery. Omitted values keep provider
+ * defaults; false booleans remain meaningful. Prompts, attachments, credentials,
+ * and message-edit offsets must never be included in a recovery snapshot.
+ */
+export type SessionResumeOptions = {
+  model?: string;
+  effort?: string;
+  permissionMode?: string;
+  cwd?: string;
+  projectPath?: string;
+  sessionSummary?: string;
+  skipPermissions?: boolean;
+  toolsSettings?: {
+    allowedTools?: string[];
+    disallowedTools?: string[];
+    allowedShellCommands?: string[];
+    skipPermissions?: boolean;
+  };
+};
+// ---------------------------
 //----------------- WEBSOCKET TRANSPORT TYPES ------------
 /**
  * Minimal websocket client contract used by backend broadcaster services.
