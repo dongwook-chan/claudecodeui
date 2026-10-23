@@ -79,3 +79,16 @@ test('newest fork snapshot wins when siblings carry stale off-page ancestor meta
   assert.equal(rows[0].session.summary, 'Renamed parent');
   assert.equal(rows[0].session.lastActivity, '2026-11-01');
 });
+
+test('all pins precede unpinned families and unpinning restores ancestry without duplicates', () => {
+  const input = [session('newest'), session('child', 'pinned-root'), session('pinned-child', 'root'),
+    session('pinned-root'), session('root')];
+  const pinned = buildProjectSessionTree(input, 'project', ['pinned-child', 'pinned-root']);
+  assert.deepEqual(pinned.map((row) => [row.session.id, row.parentId, row.depth]), [
+    ['pinned-child', null, 0], ['pinned-root', null, 0], ['newest', null, 0], ['child', null, 0], ['root', null, 0],
+  ]);
+  assert.deepEqual(shape(input), [
+    ['newest', null, 0, false], ['pinned-root', null, 0, true], ['child', 'pinned-root', 1, false],
+    ['root', null, 0, true], ['pinned-child', 'root', 1, false],
+  ]);
+});

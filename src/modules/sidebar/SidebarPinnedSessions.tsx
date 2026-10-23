@@ -4,12 +4,13 @@ import { Button } from '@/shared/ui';
 import SidebarRecentConversations from '@/modules/sidebar/SidebarRecentConversations';
 import { useSessionPins } from '@/modules/sidebar/hooks/useSessionPins';
 
-/** SidebarContent renders these identical shortcuts above the Projects and Conversations lists. */
+/** Conversations shows all pins; Projects uses this only for retryable pin errors. */
 export default function SidebarPinnedSessions(props: Pick<ComponentProps<typeof SidebarRecentConversations>,
   'selectedSession' | 'currentTime' | 'sessionActions' | 'onConversationSelect' | 't'
->) {
+> & { showSessions?: boolean }) {
+  const { showSessions = true } = props;
   const pins = useSessionPins();
-  if (!pins || (!pins.hasError && pins.sessions.length === 0)) return null;
+  if (!pins || (!pins.hasError && (!showSessions || pins.sessions.length === 0))) return null;
   return (
     <div className="mx-1 mb-2 border-b border-border/60 pb-2" data-testid="pinned-sessions-section">
       {pins.hasError && (
@@ -20,7 +21,7 @@ export default function SidebarPinnedSessions(props: Pick<ComponentProps<typeof 
           </Button>
         </div>
       )}
-      {pins.sessions.length > 0 && (
+      {showSessions && pins.sessions.length > 0 && (
         <SidebarRecentConversations
           {...props}
           listKind="pinned"

@@ -18,7 +18,6 @@ export function SessionPinsProvider({ projects, children }: { projects: Project[
   const [ready, setReady] = useState(false);
   const [hasError, setHasError] = useState(false);
   const [pendingSessionId, setPendingSessionId] = useState<string | null>(null);
-  const [renameSource, setRenameSource] = useState<'pinned' | 'project'>('project');
   const pendingRef = useRef<string | null>(null);
   const sequenceRef = useRef(0);
   const mountedRef = useRef(true);
@@ -97,8 +96,8 @@ export function SessionPinsProvider({ projects, children }: { projects: Project[
 
   const pinnedIds = useMemo(() => new Set(sessions.map((session) => session.sessionId)), [sessions]);
   const value = useMemo(() => ({
-    sessions, pinnedIds, ready, hasError, pendingSessionId, renameSource, setRenameSource, refresh, setPinned,
-  }), [sessions, pinnedIds, ready, hasError, pendingSessionId, renameSource, refresh, setPinned]);
+    sessions, pinnedIds, ready, hasError, pendingSessionId, refresh, setPinned,
+  }), [sessions, pinnedIds, ready, hasError, pendingSessionId, refresh, setPinned]);
 
   return <SessionPinsContext.Provider value={value}>{children}</SessionPinsContext.Provider>;
 }

@@ -153,7 +153,6 @@ function SidebarSessionItem({
   };
 
   const startMobileRename = () => {
-    pins?.setRenameSource('project');
     onStartEditingSession(project.projectId, session.id, sessionView.sessionName);
   };
 
