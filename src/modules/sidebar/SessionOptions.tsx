@@ -9,7 +9,6 @@ import { useSessionForkingProviders } from '@/shared/hooks/useProviderCapabiliti
 import { useProviderSessionIdCopy } from '@/modules/sidebar/hooks/useProviderSessionIdCopy';
 import { PROVIDER_LABELS } from '@/modules/sidebar/utils/sidebarProjectFormatting';
 import SessionPinButton from '@/modules/sidebar/SessionPinButton';
-import { useSessionPins } from '@/modules/sidebar/hooks/useSessionPins';
 
 type SessionOptionsProps = {
   sessionId: string;
@@ -33,7 +32,6 @@ type SessionOptionsProps = {
   onFork?: () => void;
   /** Withheld where the row has nowhere to send a delete. */
   canDelete?: boolean;
-  pinShortcut?: boolean;
   className?: string;
   t: TFunction;
 };
@@ -62,14 +60,11 @@ export default function SessionOptions({
   onDeleteSession,
   onFork,
   canDelete = true,
-  pinShortcut = false,
   className,
   t,
 }: SessionOptionsProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const pins = useSessionPins();
-  const renameSource = pinShortcut ? 'pinned' : 'project';
-  const showRename = isEditing && (!pins?.pinnedIds.has(sessionId) || pins.renameSource === renameSource);
+  const showRename = isEditing;
   const providerLabel = PROVIDER_LABELS[provider];
   const { copyState, copyLabel, setOptionsOpen, handleCopyAction, isCopyPending, CopyStateIcon } =
     useProviderSessionIdCopy(sessionId, providerLabel);
@@ -174,7 +169,6 @@ export default function SessionOptions({
               label: 'Rename session',
               icon: Edit2,
               onSelect: () => {
-                pins?.setRenameSource(renameSource);
                 onStartEditingSession(projectId, sessionId, sessionName);
               },
             }] : []),
