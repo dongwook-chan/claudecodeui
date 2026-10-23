@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import type { AddressInfo } from 'node:net';
+import { Readable } from 'node:stream';
 import test from 'node:test';
 
 import express, { type RequestHandler } from 'express';
@@ -93,6 +94,41 @@ test('project files route requests gitignore filtering when explicitly enabled',
   });
 
   assert.deepEqual(inputs, [['project-1', { respectGitignore: true }]]);
+});
+
+test('file read routes preserve absolute links with spaces and non-ASCII names', async () => {
+  const filePath = '/home/user/.codex/skills/production review 한글.ko.md';
+  const content = '# Production review\n프로젝트 밖 문서\n';
+  const reads: Parameters<FileTreeServices['readTextFile']>[] = [];
+  const streams: Parameters<FileTreeServices['openFile']>[] = [];
+  const services = createFakeServices({
+    readTextFile: async (...input) => {
+      reads.push(input);
+      return { path: filePath, content };
+    },
+    openFile: async (...input) => {
+      streams.push(input);
+      return { contentType: 'text/markdown; charset=utf-8', stream: Readable.from([content]) };
+    },
+  });
+
+  await withFileTreeServer(services, async (baseUrl) => {
+    const textResponse = await fetch(
+      `${baseUrl}/api/file-tree/projects/project-1/file?${new URLSearchParams({ filePath })}`,
+    );
+    assert.equal(textResponse.status, 200);
+    assert.deepEqual(await textResponse.json(), { path: filePath, content });
+
+    const streamResponse = await fetch(
+      `${baseUrl}/api/file-tree/projects/project-1/files/content?${new URLSearchParams({ path: filePath })}`,
+    );
+    assert.equal(streamResponse.status, 200);
+    assert.equal(streamResponse.headers.get('content-type'), 'text/markdown; charset=utf-8');
+    assert.equal(await streamResponse.text(), content);
+  });
+
+  assert.deepEqual(reads, [['project-1', filePath]]);
+  assert.deepEqual(streams, [['project-1', filePath]]);
 });
 
 test('create route parses the transport payload before invoking the service', async () => {
