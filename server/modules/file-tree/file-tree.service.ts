@@ -13,7 +13,6 @@ import {
   AppError,
   FORBIDDEN_WORKSPACE_PATHS,
   normalizeProjectPath,
-  resolvePathUnderRoots,
 } from '@/shared/utils.js';
 
 const HARD_EXCLUDED_DIRECTORY_NAMES = new Set([
@@ -341,34 +340,17 @@ export function createFileTreeService(dependencies: FileTreeServiceDependencies)
   }
 
   /**
-   * Resolves a path the viewer is allowed to read.
+   * Resolves an explicit file link for the authenticated viewer.
    *
-   * A file reference in a transcript is normally inside the project, but a
-   * background command's log lives in the system temp directory and a
-   * background agent's output file is a link from there into the Claude
-   * projects directory, and the transcript quotes those paths verbatim. Those
-   * resolve through the read-only root policy instead of the project root.
-   *
-   * The agent may also point at a file in another folder of the workspace, the
-   * same tree `browseWorkspace` lists, so anything under the workspace root is
-   * readable too. Symlinks are resolved before that comparison. The writing
-   * endpoints keep using `resolvePathInsideProject` alone, so nothing outside
-   * the project can be changed.
+   * Absolute links may name skills, reports, or logs outside the selected
+   * project, including symlinks to those files. Let the filesystem enforce
+   * read permissions. Relative references remain scoped to the project, and
+   * writing endpoints continue to use `resolvePathInsideProject`.
    */
-  async function resolveReadablePath(projectRoot: string, targetPath: string): Promise<string> {
-    if (path.isAbsolute(targetPath)) {
-      const readOnlyPath = await dependencies.workspace.resolveReadOnlyRootPath(targetPath);
-      if (readOnlyPath) {
-        return readOnlyPath;
-      }
-
-      const workspacePath = await resolvePathUnderRoots(targetPath, [dependencies.workspace.rootPath]);
-      if (workspacePath) {
-        return workspacePath;
-      }
-    }
-
-    return resolvePathInsideProject(projectRoot, targetPath);
+  function resolveReadablePath(projectRoot: string, targetPath: string): string {
+    return path.isAbsolute(targetPath)
+      ? path.resolve(targetPath)
+      : resolvePathInsideProject(projectRoot, targetPath);
   }
 
   async function cleanupTemporaryFiles(files: FileTreeUploadedFile[]): Promise<void> {
@@ -464,7 +446,7 @@ export function createFileTreeService(dependencies: FileTreeServiceDependencies)
 
     async readTextFile(projectId, filePath) {
       const projectRoot = await resolveProjectRoot(projectId);
-      const resolvedPath = await resolveReadablePath(projectRoot, filePath);
+      const resolvedPath = resolveReadablePath(projectRoot, filePath);
       try {
         const content = await fileSystem.readTextFile(resolvedPath);
         return { content, path: resolvedPath };
@@ -479,7 +461,7 @@ export function createFileTreeService(dependencies: FileTreeServiceDependencies)
 
     async openFile(projectId, filePath) {
       const projectRoot = await resolveProjectRoot(projectId);
-      const resolvedPath = await resolveReadablePath(projectRoot, filePath);
+      const resolvedPath = resolveReadablePath(projectRoot, filePath);
       try {
         await fileSystem.access(resolvedPath);
       } catch {
