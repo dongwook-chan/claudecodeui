@@ -6,6 +6,8 @@ export { probeCliVersion, resolveConfiguredCliExecutable, runProviderCliCommand,
 export { appendFilesInputTag, buildCodexInputItems, normalizeImageDescriptors } from './image-attachments.js';
 export { createCompleteMessage, createNormalizedMessage } from './utils.js';
 export type { AnyRecord, ProviderRuntimeContext, ProviderRuntimeWriter, ProviderNotificationTarget } from './types.js';
+// WebSocket and Providers expose explicit launch settings for deployment recovery.
+export type { RealtimeClientConnection, SessionResumeOptions } from './types.js';
 export { getLinuxFileLockIdentity, parseLinuxExclusiveFileLocks } from './utils.js';
 // Sessions and WebSocket use these shared transport and history contracts.
 export type { BackgroundTaskSummary, FetchHistoryOptions, FetchHistoryResult, LLMProvider, NormalizedMessage, WorkflowAgentActivity, AuthenticatedWebSocketRequest, ProviderPermissionDecision } from './types.js';
