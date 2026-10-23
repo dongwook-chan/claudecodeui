@@ -84,22 +84,25 @@ beforeEach(() => {
   mocks.save.mockReset().mockResolvedValue(response([]));
 });
 
-test('the same pinned section precedes both views; Projects keeps the original row and Conversations has no duplicate', async () => {
-  const { container, rerender } = render(
+test('Projects places pins inside their own project; Conversations collects pins first without a heading or duplicates', async () => {
+  mocks.load.mockResolvedValue(response([B]));
+  const { rerender } = render(
     <SessionPinsProvider projects={PROJECTS}><SidebarContent {...contentProps('projects')} /></SessionPinsProvider>,
   );
-  await waitFor(() => assert.ok(screen.queryByTestId('pinned-sessions-section')));
-  const pinned = screen.getByTestId('pinned-sessions-section');
-  assert.ok(within(pinned).getByText('Title a'));
-  assert.ok(within(pinned).getByText('Project one'));
-  assert.equal(screen.getAllByText('Title a').length, 2, 'project keeps the original session and its tree context');
-  const original = screen.getAllByText('Title a')[1];
-  assert.ok(pinned.compareDocumentPosition(original) & Node.DOCUMENT_POSITION_FOLLOWING);
+  await waitFor(() => assert.ok(screen.queryByRole('button', { name: 'Unpin session: Title b' })));
+  assert.equal(Boolean(screen.queryByTestId('pinned-sessions-section')), false);
+  assert.deepEqual([...screen.getByTestId('project-session-tree').querySelectorAll('[data-session-id]')].map((row) => row.getAttribute('data-session-id')), ['b', 'a']);
+  assert.equal(screen.getAllByText('Title b').length, 1);
 
   rerender(<SessionPinsProvider projects={PROJECTS}><SidebarContent {...contentProps('conversations')} /></SessionPinsProvider>);
-  assert.equal(screen.getAllByText('Title a').length, 1);
-  assert.ok(within(screen.getByTestId('recent-conversations-list')).getByText('Title b'));
-  assert.ok(container.querySelector('[data-testid="pinned-sessions-section"]'));
+  const pinned = screen.getByTestId('pinned-sessions-section');
+  const recent = screen.getByTestId('recent-conversations-list');
+  assert.ok(within(pinned).getByText('Title b'));
+  assert.ok(within(pinned).getByText('Project one'));
+  assert.equal(screen.getAllByText('Title b').length, 1);
+  assert.ok(within(recent).getByText('Title a'));
+  assert.ok(pinned.compareDocumentPosition(recent) & Node.DOCUMENT_POSITION_FOLLOWING);
+  assert.equal(Boolean(screen.queryByText('Pinned sessions')), false);
 });
 
 test('unpin uses the server response in both views and returns the session to the recent feed', async () => {
@@ -113,7 +116,51 @@ test('unpin uses the server response in both views and returns the session to th
   assert.equal(Boolean(screen.queryByTestId('pinned-sessions-section')), false);
 });
 
-test('renaming a pinned shortcut opens just one editor even while its original project row is visible', async () => {
+test('project pins remain scoped to their owner and include older pages without altering pagination', async () => {
+  const c = { ...conversation('c'), projectId: 'project-2', projectDisplayName: 'Project two' };
+  const older = conversation('older');
+  const projects: Project[] = [
+    { ...PROJECTS[0], sessionMeta: { total: 20, hasMore: true } },
+    { projectId: 'project-2', fullPath: '/workspace/two', displayName: 'Project two', sessions: [
+      { id: 'd', summary: 'Title d', __provider: 'codex' },
+      { id: 'c', summary: c.sessionTitle, __provider: 'codex' },
+    ], sessionMeta: { total: 2, hasMore: false } },
+  ];
+  mocks.load.mockResolvedValue(response([c, older, B]));
+  const more = vi.fn();
+  const props = contentProps('projects');
+  props.projects = projects;
+  props.projectListProps = { ...listProps, projects, filteredProjects: projects,
+    initialSessionsLoaded: new Set(['project-1', 'project-2']), onLoadMoreSessions: more };
+  render(<SessionPinsProvider projects={projects}><SidebarContent {...props} /></SessionPinsProvider>);
+  await waitFor(() => assert.ok(screen.queryByText('Title older')));
+  const trees = screen.getAllByTestId('project-session-tree');
+  const ids = (tree: HTMLElement) => [...tree.querySelectorAll('[data-session-id]')].map((row) => row.getAttribute('data-session-id'));
+  assert.deepEqual(ids(trees[0]), ['older', 'b', 'a']);
+  assert.deepEqual(ids(trees[1]), ['c', 'd']);
+  assert.equal(screen.getAllByText('Title c').length, 1);
+  fireEvent.click(screen.getByRole('button', { name: 'Load more sessions' }));
+  assert.deepEqual(more.mock.calls, [['project-1']]);
+});
+
+test('pinning a fork lifts it above its parent without a duplicate, and unpin restores the tree', async () => {
+  const projects: Project[] = [{ ...PROJECTS[0], sessions: [
+    { id: 'b', summary: 'Title b', __provider: 'codex', forkedFromSessionId: 'a' },
+    { id: 'a', summary: 'Title a', __provider: 'codex' },
+  ] }];
+  mocks.load.mockResolvedValue(response([B]));
+  const props = contentProps('projects');
+  props.projectListProps = { ...listProps, projects, filteredProjects: projects };
+  render(<SessionPinsProvider projects={projects}><SidebarContent {...props} /></SessionPinsProvider>);
+  const rows = () => [...screen.getByTestId('project-session-tree').querySelectorAll('[data-session-id]')]
+    .map((row) => [row.getAttribute('data-session-id'), row.getAttribute('data-fork-depth')]);
+  await waitFor(() => assert.deepEqual(rows(), [['b', '0'], ['a', '0']]));
+  assert.equal(screen.getAllByText('Title b').length, 1);
+  fireEvent.click(screen.getByRole('button', { name: 'Unpin session: Title b' }));
+  await waitFor(() => assert.deepEqual(rows(), [['a', '0'], ['b', '1']]));
+});
+
+test('renaming a pinned project row opens one editor in its project', async () => {
   function RenameHarness() {
     const [activeRename, setActiveRename] = useState<SessionRowActions['activeRename']>(null);
     const props = contentProps('projects');
@@ -124,8 +171,8 @@ test('renaming a pinned shortcut opens just one editor even while its original p
     return <SessionPinsProvider projects={PROJECTS}><SidebarContent {...props} /></SessionPinsProvider>;
   }
   render(<RenameHarness />);
-  await waitFor(() => assert.ok(screen.queryByTestId('pinned-sessions-section')));
-  const pinned = screen.getByTestId('pinned-sessions-section');
+  await waitFor(() => assert.ok(screen.queryByRole('button', { name: 'Unpin session: Title a' })));
+  const pinned = screen.getByTestId('project-session-tree');
   fireEvent.click(within(pinned).getByRole('button', { name: 'Session options for Title a' }));
   fireEvent.click(await screen.findByRole('menuitem', { name: 'Rename session' }));
   assert.equal(screen.getAllByRole('textbox').length, 1);
@@ -143,7 +190,9 @@ test('mobile project pin is reachable directly and does not select the session',
   const button = screen.getByRole('button', { name: 'Pin session: Title b' });
   await waitFor(() => assert.equal(button.hasAttribute('disabled'), false));
   fireEvent.click(button);
-  await waitFor(() => assert.ok(screen.queryByTestId('pinned-sessions-section')));
+  await waitFor(() => assert.ok(screen.queryByRole('button', { name: 'Unpin session: Title b' })));
+  assert.deepEqual([...screen.getByTestId('project-session-tree').querySelectorAll('[data-session-id]')].map((row) => row.getAttribute('data-session-id')), ['b', 'a']);
+  assert.equal(screen.getAllByText('Title b').length, 1);
   assert.equal(select.mock.calls.length, 0);
   assert.deepEqual(mocks.save.mock.calls, [['b', true]]);
 });
@@ -203,7 +252,8 @@ test('a failed initial load shows a retry control even with no pinned sessions',
   await waitFor(() => assert.ok(screen.queryByRole('alert')));
   fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
   await waitFor(() => assert.equal(Boolean(screen.queryByRole('alert')), false));
-  assert.ok(screen.getByTestId('pinned-sessions-section'));
+  assert.ok(screen.getByRole('button', { name: 'Unpin session: Title a' }));
+  assert.equal(Boolean(screen.queryByTestId('pinned-sessions-section')), false);
 });
 
 test('double taps serialize mutations and a focus refresh picks up another device\'s pins', async () => {
