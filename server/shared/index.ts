@@ -10,3 +10,8 @@ export { getGlobalImageAssetsDir, isImageAttachmentDescriptor, normalizeAttachme
 // Provider synchronizers use these shared filesystem and transcript metadata helpers.
 export { buildLookupMap, extractFirstValidJsonlData, findFilesRecursivelyModifiedAfter, normalizeSessionName, readFileTimestamps, readObjectRecord, readOptionalString } from './utils.js';
 export type { IProviderSessionSynchronizer } from './interfaces.js';
+// Database and Providers share the persisted session-pin summary contract.
+export type { SessionPinRecord } from './types.js';
+// Providers routes validate model, MCP and skill payloads through the shared contract.
+export type { CustomProviderModelEffort, CustomProviderModelInput, McpScope, McpTransport, ProviderSkillCreateFile, ProviderSkillCreateInput, UpsertProviderMcpServerInput } from './types.js';
+export { asyncHandler, createApiSuccessResponse } from './utils.js';
