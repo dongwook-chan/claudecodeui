@@ -174,6 +174,7 @@ async function readClearedContextSegment(
     projectPath,
     providerSessionId: segment.providerSessionId,
     transcriptPath: segment.jsonlPath ?? undefined,
+    jsonlPath: segment.jsonlPath ?? null,
   });
 
   // A reader that parses a per-session file cannot find this part without its
@@ -239,7 +240,7 @@ async function readCurrentContextHistory(
   // re-parsing the whole file per request. Cursor and OpenCode read their
   // messages from elsewhere (store.db / shared SQLite), so that file's stat
   // says nothing about their history — they stay on the direct path.
-  const transcriptPath = provider === 'claude' || provider === 'codex'
+  const transcriptPath = provider === 'claude' || provider === 'codex' || provider === 'antigravity'
     ? session.jsonl_path
     : null;
   const fullHistory = await sessionHistoryCache.getFullHistory({
@@ -250,6 +251,7 @@ async function readCurrentContextHistory(
       offset: 0,
       projectPath,
       providerSessionId,
+      jsonlPath: session.jsonl_path ?? null,
     }),
   });
 
@@ -271,6 +273,7 @@ async function readCurrentContextHistory(
       offset: requestedOffset,
       projectPath,
       providerSessionId,
+      jsonlPath: session.jsonl_path ?? null,
     });
   }
 
