@@ -285,6 +285,48 @@ test('custom-models-only makes the first custom model the session fallback', asy
   );
 });
 
+test('curated models take precedence over legacy custom rows with the same ID', async () => {
+  const catalog = createCatalogStore();
+  catalog.rows.set('codex', [{
+    recordId: 1,
+    provider: 'codex',
+    modelId: 'codex-default',
+    model: 'Old custom Codex default',
+    sortOrder: 0,
+    effort: null,
+  }]);
+  const { service } = createTestService({ catalog });
+
+  const models = await service.getProviderModels('codex');
+
+  assert.deepEqual(models.OPTIONS, [{
+    value: 'codex-default',
+    label: 'codex-default',
+    isCustom: false,
+  }]);
+});
+
+test('custom-only catalogs retain a promoted custom ID and its user metadata', async () => {
+  const catalog = createCatalogStore();
+  catalog.rows.set('codex', [{
+    recordId: 1,
+    provider: 'codex',
+    modelId: 'codex-default',
+    model: 'Gateway Codex',
+    sortOrder: 0,
+    effort: null,
+  }]);
+  const { service } = createTestService({ catalog });
+
+  const models = await service.setCustomModelsOnly('codex', true);
+
+  assert.deepEqual(models.OPTIONS.map(({ value, label, isCustom }) => ({ value, label, isCustom })), [{
+    value: 'codex-default', label: 'Gateway Codex', isCustom: true,
+  }]);
+  assert.equal(models.DEFAULT, 'codex-default');
+  assert.equal(catalog.rows.get('codex')?.length, 1);
+});
+
 test('custom models can be created, edited, and deleted', async () => {
   const { service } = createTestService();
   const created = await service.createCustomModel('claude', {
@@ -388,6 +430,7 @@ test('allowed effort levels come from the provider, not from the built-in models
   // Every merged catalog carries the provider's levels for the model library,
   // weakest first, and an empty list where effort is unsupported.
   const expectedLevels: Record<LLMProvider, string[]> = {
+    antigravity: [],
     claude: ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'],
     codex: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
     cursor: [],
