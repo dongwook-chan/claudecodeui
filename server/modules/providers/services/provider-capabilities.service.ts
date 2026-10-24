@@ -143,6 +143,19 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
     supportsSideQuestions: true,
     supportsSteering: false,
   },
+  antigravity: {
+    provider: 'antigravity',
+    permissionModes: ['default', 'acceptEdits', 'bypassPermissions', 'plan'],
+    defaultPermissionMode: 'default',
+    supportsImages: false,
+    supportsFiles: false,
+    supportsAbort: true,
+    supportsPermissionRequests: false,
+    supportsTokenUsage: false,
+    supportsEffort: false,
+    supportsMessageEditing: false,
+    supportsSessionForking: false,
+  },
 };
 
 /**
