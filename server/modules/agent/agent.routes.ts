@@ -8,7 +8,7 @@ import type { ProviderRunFunction } from '@/shared/types.js';
 import { normalizeProjectPath } from '../../shared/utils.js';
 
 /** The providers an Agent API run can start: the ones with a runtime and a model catalog. */
-const AGENT_RUN_PROVIDERS = ['claude', 'cursor', 'codex', 'opencode'];
+const AGENT_RUN_PROVIDERS = ['claude', 'cursor', 'codex', 'opencode', 'antigravity'];
 
 /** What the route reads off a session row it continues: the row, not the request, says which provider and project a session belongs to. */
 type AgentSessionRow = {
@@ -41,8 +41,49 @@ type AgentRouterDependencies = {
   queryCursor: ProviderRunFunction;
   queryCodex: ProviderRunFunction;
   queryOpenCode: ProviderRunFunction;
+  queryAntigravity: ProviderRunFunction;
   GithubClient: typeof import('@octokit/rest').Octokit;
 };
+
+/**
+ * Filters provider output down to assistant messages for non-streaming Agent
+ * responses. It preserves the legacy Claude envelope while accepting the
+ * normalized live-message contract used by CLI-backed providers such as AGY.
+ */
+export function collectAgentAssistantMessages(messages: unknown[]): unknown[] {
+  const assistantMessages = [];
+
+  for (const msg of messages) {
+    if (msg && msg.type === 'status') {
+      continue;
+    }
+
+    let parsed = msg;
+    if (typeof msg === 'string') {
+      try {
+        parsed = JSON.parse(msg);
+      } catch {
+        continue;
+      }
+    }
+
+    if (parsed?.type === 'claude-response' && parsed.data?.type === 'assistant') {
+      assistantMessages.push(parsed.data);
+      continue;
+    }
+
+    if (
+      parsed
+      && ['stream_delta', 'text'].includes(parsed.kind)
+      && parsed.role !== 'user'
+      && typeof parsed.content === 'string'
+    ) {
+      assistantMessages.push(parsed);
+    }
+  }
+
+  return assistantMessages;
+}
 
 /**
  * Creates Agent routes around explicit authentication, repository, provider,
@@ -65,6 +106,7 @@ export function createAgentRouter(dependencies: AgentRouterDependencies): expres
   const spawnCursor = dependencies.queryCursor;
   const queryCodex = dependencies.queryCodex;
   const spawnOpenCode = dependencies.queryOpenCode;
+  const spawnAntigravity = dependencies.queryAntigravity;
   const Octokit = dependencies.GithubClient;
   const router = express.Router();
 
@@ -571,7 +613,7 @@ export function createAgentRouter(dependencies: AgentRouterDependencies): expres
      * always empty.)
      */
     getAssistantMessages() {
-      return this.messages.filter((msg) => msg && msg.kind === 'text' && msg.role === 'assistant');
+      return collectAgentAssistantMessages(this.messages);
     }
 
     /**
@@ -631,7 +673,7 @@ export function createAgentRouter(dependencies: AgentRouterDependencies): expres
    *                          - Source for auto-generated branch names (if createBranch=true and no branchName)
    *                          - Fallback for PR title if no commits are made
    *
-   * @param {string} provider - (Optional) AI provider to use. Options: 'claude' | 'cursor' | 'codex' | 'opencode'
+   * @param {string} provider - (Optional) AI provider to use. Options: 'claude' | 'cursor' | 'codex' | 'opencode' | 'antigravity'
    *                           Default: 'claude'
    *
    * @param {boolean} stream - (Optional) Enable Server-Sent Events (SSE) streaming for real-time updates.
@@ -655,6 +697,7 @@ export function createAgentRouter(dependencies: AgentRouterDependencies): expres
    *                                       'gpt-5.1-codex', 'gpt-5.1-codex-high', 'gpt-5.1-codex-max',
    *                                       'gpt-5.1-codex-max-high', 'opus-4.1', 'grok', and thinking variants
    *                        Codex models: 'gpt-5.4' (default), 'gpt-5.5', 'gpt-5.4-mini'
+   *                        Antigravity models: discovered dynamically from `agy models`
    *
    * @param {string} effort - (Optional) Reasoning effort for providers/models that support it.
    *                          Claude supports: 'low', 'medium', 'high', 'xhigh', 'max' depending on model.
@@ -762,7 +805,7 @@ export function createAgentRouter(dependencies: AgentRouterDependencies): expres
    * Input Validations (400 Bad Request):
    *   - Either githubUrl OR projectPath must be provided (not neither)
    *   - message must be non-empty string
-   *   - provider must be 'claude', 'cursor', 'codex', or 'opencode'
+   *   - provider must be 'claude', 'cursor', 'codex', 'opencode', or 'antigravity'
    *   - createBranch/createPR requires githubUrl OR projectPath (not neither)
    *   - branchName must pass Git naming rules (if provided)
    *
@@ -893,7 +936,7 @@ export function createAgentRouter(dependencies: AgentRouterDependencies): expres
     }
 
     if (requestedProvider !== null && !AGENT_RUN_PROVIDERS.includes(requestedProvider)) {
-      return res.status(400).json({ error: 'provider must be "claude", "cursor", "codex", or "opencode"' });
+      return res.status(400).json({ error: 'provider must be "claude", "cursor", "codex", "opencode", or "antigravity"' });
     }
 
     // Validate GitHub branch/PR creation requirements
@@ -1025,7 +1068,7 @@ export function createAgentRouter(dependencies: AgentRouterDependencies): expres
       // A request without `model` runs on the catalog's DEFAULT, the value
       // /api/providers/:provider/models and the API docs advertise. It is the
       // first custom model while the provider lists only custom models.
-      // Only the four runnable providers have a catalog: a continued legacy
+      // Only the registered runnable providers have a catalog: a continued legacy
       // session whose provider is no longer registered must not fail here.
       const providerModels = AGENT_RUN_PROVIDERS.includes(provider)
         ? await providerModelsService.getProviderModels(provider)
@@ -1081,6 +1124,16 @@ export function createAgentRouter(dependencies: AgentRouterDependencies): expres
           model: model || providerModels?.DEFAULT,
           effort,
           permissionMode: 'bypassPermissions' // Agent runs are non-interactive, like the other providers above
+        }, run.writer);
+      } else if (provider === 'antigravity') {
+        console.log('Starting Antigravity CLI session');
+
+        await spawnAntigravity(message.trim(), {
+          projectPath: finalProjectPath,
+          cwd: finalProjectPath,
+          sessionId: appSessionId,
+          model: model || providerModels?.DEFAULT,
+          permissionMode: 'bypassPermissions'
         }, run.writer);
       }
 
