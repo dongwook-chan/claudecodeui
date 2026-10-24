@@ -72,7 +72,7 @@ function ChatInterface({
   onShowAllTasks,
 }: ChatInterfaceProps) {
   const { tasksEnabled, isTaskMasterInstalled } = useTasksSettings();
-  const { subscribe } = useWebSocket();
+  const { subscribe, sendMessageWithAck, isConnected } = useWebSocket();
   const { t } = useTranslation('chat');
   const processingSessions = useProcessingSessions();
   const {
@@ -188,6 +188,7 @@ function ChatInterface({
 
   const {
     input,
+    sendError,
     setInput,
     textareaRef,
     inputHighlightRef,
@@ -252,6 +253,8 @@ function ChatInterface({
     canAbortSession,
     tokenBudget,
     sendMessage,
+    sendMessageWithAck,
+    socketReady: isConnected,
     sendByCtrlEnter,
     onSessionProcessing,
     onSessionEstablished: handleSessionEstablished,
@@ -593,6 +596,7 @@ function ChatInterface({
           renderInputWithMentions={renderInputWithMentions}
           textareaRef={textareaRef}
           input={input}
+          sendError={sendError}
           onVoiceTranscript={handleVoiceTranscript}
           onInputChange={handleInputChange}
           onTextareaClick={handleTextareaClick}
