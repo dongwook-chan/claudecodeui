@@ -60,6 +60,11 @@ const renderComposer = () => {
       canAbortSession: false,
       tokenBudget: null,
       sendMessage: (message) => { sent.push(message as { type: string; content?: string }); },
+      socketReady: true,
+      sendMessageWithAck: async (message) => {
+        sent.push(message as { type: string; content?: string });
+        return 'accepted';
+      },
       onSessionEstablished: () => undefined,
       scrollToBottom: () => undefined,
       addMessage: () => undefined,
