@@ -97,6 +97,11 @@ const renderComposer = (sendMessage: ReturnType<typeof vi.fn>, sendByCtrlEnter?:
     canAbortSession: false,
     tokenBudget: null,
     sendMessage,
+    socketReady: true,
+    sendMessageWithAck: async (message) => {
+      sendMessage(message);
+      return 'accepted';
+    },
     sendByCtrlEnter,
     scrollToBottom: () => undefined,
     addMessage: () => undefined,
