@@ -164,6 +164,8 @@ const render = (initialProps: Partial<Props> = {}) => {
       canAbortSession: false,
       tokenBudget: null,
       sendMessage: () => undefined,
+      sendMessageWithAck: async () => 'accepted' as const,
+      socketReady: true,
       scrollToBottom: () => undefined,
       addMessage: (message) => {
         if (message.type === 'error') errors.push(message);
