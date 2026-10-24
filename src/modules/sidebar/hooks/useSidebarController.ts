@@ -218,12 +218,11 @@ export function useSidebarController({
     if (isInitialSelection && keepProjectsExpanded && restoredExpandedProjects.current !== null) return;
 
     setExpandedProjects((prev) => {
-      if (prev.has(selectedProjectId)) {
+      if (prev.size === 1 && prev.has(selectedProjectId)) {
         return prev;
       }
-      const next = new Set(prev);
-      next.add(selectedProjectId);
-      return next;
+      // Match manual expansion: selecting a project replaces the open project.
+      return new Set([selectedProjectId]);
     });
   }, [selectedProject?.projectId, keepProjectsExpanded]);
 
