@@ -50,6 +50,32 @@ function createFakePty() {
   };
 }
 
+for (const providerConversationId of [null, 'agy-conversation-id']) {
+  test(`Antigravity shell launches ${providerConversationId ? 'a resumed conversation' : 'a new conversation'}`, () => {
+    const pty = createFakePty();
+    const socket = createFakeSocket();
+    let shellArguments: string[] = [];
+    handleShellConnection(socket as never, {
+      resolveProviderSessionId: () => providerConversationId,
+      spawnPty: (_program: string, argumentsList: string | string[]) => {
+        shellArguments = typeof argumentsList === 'string' ? [argumentsList] : argumentsList;
+        return pty as never;
+      },
+    });
+    socket.emit('message', JSON.stringify({
+      type: 'init',
+      projectPath: process.cwd(),
+      sessionId: `antigravity-shell-${providerConversationId ?? 'new'}-${Date.now()}`,
+      hasSession: Boolean(providerConversationId),
+      provider: 'antigravity',
+    }));
+    const command = shellArguments.join(' ');
+    assert.match(command, providerConversationId ? /agy --conversation "agy-conversation-id"/ : /agy/);
+    assert.doesNotMatch(command, /undefined/);
+    pty.emitExit();
+  });
+}
+
 test('a stale socket close cannot detach the socket that replaced it', () => {
   const pty = createFakePty();
   const dependencies = {
