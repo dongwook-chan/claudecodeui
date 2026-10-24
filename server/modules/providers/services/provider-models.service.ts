@@ -104,7 +104,12 @@ const mergeProviderModels = (
   custom: CustomProviderModelRecord[],
   customModelsOnly: boolean,
 ): ProviderModelsDefinition => {
-  const customOptions = custom.map(toCustomProviderModelOption);
+  // Hide promoted duplicates only when curated options are listed; an explicit
+  // custom-only catalog must still retain the user's stored models.
+  const predefinedIds = new Set(predefined.OPTIONS.map((option) => option.value));
+  const customOptions = custom
+    .filter((record) => customModelsOnly || !predefinedIds.has(record.modelId))
+    .map(toCustomProviderModelOption);
   const listOnlyCustomModels = customModelsOnly && customOptions.length > 0;
   return {
     OPTIONS: listOnlyCustomModels
