@@ -6,7 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { closeConnection, initializeDatabase, sessionsDb } from '@/modules/database/index.js';
+import { closeConnection, getConnection, initializeDatabase, sessionsDb } from '@/modules/database/index.js';
 import { providerRuntimeService } from '@/modules/providers/index.js';
 import { handleChatConnection } from '@/modules/websocket/services/chat-websocket.service.js';
 import { chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.service.js';
@@ -16,7 +16,7 @@ import { connectedClients } from '@/modules/websocket/services/websocket-state.s
  * Stopping an OpenCode turn from the chat, end to end through the chat gateway
  * and the real provider runtime against a fake `opencode serve` (the providers
  * module's test fixture, put on PATH as `opencode`): the open prompt is
- * withdrawn, and the chat gets exactly one terminal `complete`, the aborted one
+ * stopped, and the chat gets exactly one terminal `complete`, the aborted one
  * the abort handler sends — not the failed one the gateway sends for a runtime
  * that settles before the abort has been reported.
  */
@@ -78,9 +78,12 @@ const sendFrame = (socket: ReturnType<typeof createFakeSocket>, payload: Frame) 
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const permissionScenario = (id: string, extra: Frame = {}) => JSON.stringify({
+// The installation always bypasses permissions. Keep the native turn busy
+// after an observable output event rather than waiting for a user approval
+// that bypass correctly answers without publishing a prompt.
+const runningScenario = (marker: string, extra: Frame = {}) => JSON.stringify({
   ...extra,
-  steps: [{ type: 'permission', id, permission: 'bash', patterns: ['sleep 100'], always: ['sleep *'] }],
+  steps: [{ type: 'text', text: marker }, { type: 'hang' }],
 });
 
 /** A chat gateway on a temp database, with a fake `opencode` first on PATH. */
@@ -114,6 +117,8 @@ async function withOpenCodeGateway(runTest: (socket: ReturnType<typeof createFak
   closeConnection();
   process.env.DATABASE_PATH = path.join(tempRoot, 'auth.db');
   await initializeDatabase();
+  getConnection().prepare('INSERT INTO users (id, username, password_hash) VALUES (?, ?, ?)')
+    .run(1, 'opencode-test', 'unused-test-hash');
 
   try {
     sessionsDb.createAppSession(SESSION_ID, 'opencode', projectDir);
@@ -148,11 +153,11 @@ async function waitForSettledRun() {
   await delay(300);
 }
 
-test('stopping an OpenCode turn sends one aborted complete and withdraws its prompt', async () => {
+test('stopping a bypassed OpenCode turn sends one aborted complete', async () => {
   await withOpenCodeGateway(async (socket) => {
-    process.env.FAKE_OPENCODE_SCENARIO = permissionScenario('per_abort');
+    process.env.FAKE_OPENCODE_SCENARIO = runningScenario('first-running');
     sendFrame(socket, { type: 'chat.send', sessionId: SESSION_ID, content: 'Hi', options: { model: 'fake/model' } });
-    await waitForFrame(socket, (frame) => frame.kind === 'permission_request');
+    await waitForFrame(socket, (frame) => frame.kind === 'text' && frame.content === 'first-running');
 
     sendFrame(socket, { type: 'chat.abort', sessionId: SESSION_ID });
     await waitForSettledRun();
@@ -161,7 +166,7 @@ test('stopping an OpenCode turn sends one aborted complete and withdraws its pro
     assert.equal(completes.length, 1, 'exactly one terminal complete');
     assert.equal(completes[0].aborted, true);
     assert.equal(completes[0].exitCode, 0);
-    assert.equal(socket.frames.find((frame) => frame.kind === 'permission_cancelled')?.requestId, 'per_abort');
+    assert.equal(socket.frames.some((frame) => frame.kind === 'permission_request'), false);
     assert.equal(socket.frames.some((frame) => frame.kind === 'error' || frame.kind === 'protocol_error'), false);
     assert.deepEqual(providerRuntimeService.getPendingApprovalsForSession(SESSION_ID), []);
   });
@@ -171,9 +176,9 @@ test('a second stop neither ends the turn early nor the next turn later', async 
   await withOpenCodeGateway(async (socket) => {
     // OpenCode takes a while to confirm the stop, so the second Stop (or a
     // second Esc) lands while the first is still in progress.
-    process.env.FAKE_OPENCODE_SCENARIO = permissionScenario('per_first', { abortDelayMs: 800 });
+    process.env.FAKE_OPENCODE_SCENARIO = runningScenario('first-running', { abortDelayMs: 800 });
     sendFrame(socket, { type: 'chat.send', sessionId: SESSION_ID, content: 'Hi', options: { model: 'fake/model' } });
-    await waitForFrame(socket, (frame) => frame.kind === 'permission_request');
+    await waitForFrame(socket, (frame) => frame.kind === 'text' && frame.content === 'first-running');
 
     sendFrame(socket, { type: 'chat.abort', sessionId: SESSION_ID });
     await delay(50);
@@ -184,9 +189,9 @@ test('a second stop neither ends the turn early nor the next turn later', async 
     assert.equal(firstComplete.exitCode, 0, 'the turn is reported stopped only once its stop has finished');
 
     // The next message, sent the moment the chat sees the turn end.
-    process.env.FAKE_OPENCODE_SCENARIO = permissionScenario('per_second');
+    process.env.FAKE_OPENCODE_SCENARIO = runningScenario('second-running');
     sendFrame(socket, { type: 'chat.send', sessionId: SESSION_ID, content: 'Again', options: { model: 'fake/model' } });
-    await waitForFrame(socket, (frame) => frame.kind === 'permission_request' && frame.requestId === 'per_second');
+    await waitForFrame(socket, (frame) => frame.kind === 'text' && frame.content === 'second-running');
     await delay(1000);
 
     assert.equal(chatRunRegistry.isProcessing(SESSION_ID), true, 'the new turn is still running');

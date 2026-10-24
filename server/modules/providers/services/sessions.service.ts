@@ -279,6 +279,14 @@ async function readCurrentContextHistory(
 }
 
 export const sessionsService = {
+  /** The providers route discards only a new session whose first turn never arrived. */
+  discardUnsentSession(sessionId: string): { sessionId: string; status: 'accepted' | 'deleted' | 'missing' } {
+    if (chatRunRegistry.isProcessing(sessionId)) {
+      return { sessionId, status: 'accepted' };
+    }
+    return { sessionId, status: sessionsDb.discardUnsentSession(sessionId) };
+  },
+
   /**
    * Lists provider ids that can load session history and normalize live messages.
    */
