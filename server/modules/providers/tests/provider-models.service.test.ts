@@ -306,6 +306,27 @@ test('curated models take precedence over legacy custom rows with the same ID', 
   }]);
 });
 
+test('custom-only catalogs retain a promoted custom ID and its user metadata', async () => {
+  const catalog = createCatalogStore();
+  catalog.rows.set('codex', [{
+    recordId: 1,
+    provider: 'codex',
+    modelId: 'codex-default',
+    model: 'Gateway Codex',
+    sortOrder: 0,
+    effort: null,
+  }]);
+  const { service } = createTestService({ catalog });
+
+  const models = await service.setCustomModelsOnly('codex', true);
+
+  assert.deepEqual(models.OPTIONS.map(({ value, label, isCustom }) => ({ value, label, isCustom })), [{
+    value: 'codex-default', label: 'Gateway Codex', isCustom: true,
+  }]);
+  assert.equal(models.DEFAULT, 'codex-default');
+  assert.equal(catalog.rows.get('codex')?.length, 1);
+});
+
 test('custom models can be created, edited, and deleted', async () => {
   const { service } = createTestService();
   const created = await service.createCustomModel('claude', {
