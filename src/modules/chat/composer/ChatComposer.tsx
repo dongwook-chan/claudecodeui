@@ -126,6 +126,7 @@ type ChatComposerProps = {
   renderInputWithMentions: (text: string) => ReactNode;
   textareaRef: RefObject<HTMLTextAreaElement>;
   input: string;
+  sendError?: string | null;
   onVoiceTranscript?: (text: string, send?: boolean) => void;
   onInputChange: (event: ChangeEvent<HTMLTextAreaElement>) => void;
   onTextareaClick: (event: MouseEvent<HTMLTextAreaElement>) => void;
@@ -208,6 +209,7 @@ export default function ChatComposer({
   renderInputWithMentions,
   textareaRef,
   input,
+  sendError,
   onVoiceTranscript,
   onInputChange,
   onTextareaClick,
@@ -465,6 +467,12 @@ export default function ChatComposer({
                 </div>
               )}
             </PromptInputHeader>
+          )}
+
+          {sendError && (
+            <div role="alert" className="px-4 pt-2 text-sm text-destructive">
+              {sendError}
+            </div>
           )}
 
           <input {...getInputProps()} />
