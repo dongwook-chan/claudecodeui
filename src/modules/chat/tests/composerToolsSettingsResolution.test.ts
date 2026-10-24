@@ -96,6 +96,10 @@ const seedAllProviderSettings = () => {
     allowedTools: ['opencode-tool'],
     skipPermissions: false,
   });
+  writeUserPreference('antigravityPermissions', {
+    allowedTools: ['antigravity-tool'],
+    skipPermissions: false,
+  });
 };
 
 beforeEach(() => {
@@ -126,6 +130,7 @@ test.each<[LLMProvider, string]>([
   ['cursor', 'cursor-tool'],
   ['codex', 'codex-tool'],
   ['opencode', 'opencode-tool'],
+  ['antigravity', 'antigravity-tool'],
 ])('a %s send carries the tools stored under that provider own preference', async (provider, tool) => {
   seedAllProviderSettings();
 
