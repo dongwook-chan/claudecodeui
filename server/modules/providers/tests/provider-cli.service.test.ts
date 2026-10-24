@@ -855,3 +855,30 @@ test('updateCli flags a failure that the updater only prints, as `opencode upgra
     assert.equal((await createService().updateCli('opencode')).failure, null);
   });
 });
+
+
+test('Antigravity CLI settings probe and update the configured executable', async () => {
+  await withIsolatedCliEnv(async (binDir) => {
+    const previous = process.env.AGY_CLI_PATH;
+    try {
+      const cli = await createFakeCli(binDir, 'agy');
+      process.env.AGY_CLI_PATH = path.join(binDir, process.platform === 'win32' ? 'agy.cmd' : 'agy');
+      await cli.set('version', '1.2.3');
+      await cli.set('update-new-version', '1.2.4');
+      const service = createService();
+      const status = await service.getCliStatus('antigravity');
+      assert.equal(status.installedVersion, '1.2.3');
+      assert.equal(status.latestVersion, null);
+      assert.equal(status.updateUnavailableReason, null);
+      assert.ok(status.updateCommand?.endsWith(' update'));
+      const updated = await service.updateCli('antigravity');
+      assert.equal(updated.previousVersion, '1.2.3');
+      assert.equal(updated.installedVersion, '1.2.4');
+      assert.equal(updated.failure, null);
+      assert.equal(await cli.read('update-count'), '1');
+    } finally {
+      if (previous === undefined) delete process.env.AGY_CLI_PATH;
+      else process.env.AGY_CLI_PATH = previous;
+    }
+  });
+});
