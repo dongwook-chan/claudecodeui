@@ -3,9 +3,8 @@ import spawn from 'cross-spawn';
 import { providerRegistry } from '@/modules/providers/provider.registry.js';
 import { sessionsService } from '@/modules/providers/services/sessions.service.js';
 import { resolveClaudeCodeExecutablePath } from '@/shared/claude-cli-path.js';
-import type { IProvider } from '@/shared/interfaces.js';
-import type { CliVersionProbe, LLMProvider } from '@/shared/types.js';
-import { AppError, IS_PLATFORM, stripAnsiSequences } from '@/shared/utils.js';
+import type { IProvider, CliVersionProbe, LLMProvider } from '@/shared/index.js';
+import { AppError, IS_PLATFORM, stripAnsiSequences, resolveConfiguredCliExecutable } from '@/shared/index.js';
 
 /** How long the registry's answer is reused before it is asked again. */
 const LATEST_VERSION_TTL_MS = 60 * 60 * 1000;
@@ -55,6 +54,11 @@ const CLI_UPDATERS: Partial<Record<LLMProvider, CliUpdater>> = {
   cursor: {
     // cursor-agent is distributed by Cursor's installer only, so there is no registry to compare with.
     resolveCommand: () => 'cursor-agent',
+    args: ['update'],
+    npmPackage: null,
+  },
+  antigravity: {
+    resolveCommand: () => resolveConfiguredCliExecutable(process.env.AGY_CLI_PATH, 'agy'),
     args: ['update'],
     npmPackage: null,
   },
@@ -181,6 +185,7 @@ function getProviderLabel(provider: LLMProvider): string {
     codex: 'Codex',
     cursor: 'Cursor CLI',
     opencode: 'OpenCode',
+    antigravity: 'Antigravity',
   };
   return labels[provider];
 }
