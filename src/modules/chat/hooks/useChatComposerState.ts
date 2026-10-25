@@ -14,10 +14,9 @@ import { useDropzone } from 'react-dropzone';
 import { useTranslation } from 'react-i18next';
 
 import { api } from '@/shared/api';
-import type { ChatSendStatus } from '@/shared/context/WebSocketContext';
 import { PROVIDER_PERMISSION_PREFERENCE_KEYS } from '@/shared/constants';
 import { readUserPreference } from '@/shared/userSettings';
-import type { BackgroundSendChoice, BackgroundSendPrompt, CommandModalPayload, CostCommandData, HelpCommandData, MarkSessionProcessing, ModelCommandData, QueuedDraft, SessionActivityMap, StatusCommandData,QueuedSendOptions,ChatAttachment,ChatMessage,PendingPermissionRequest,PermissionMode,SessionEstablishedContext,Project,ProjectSession,LLMProvider,SlashCommand } from '@/shared/types';
+import type { BackgroundSendChoice, BackgroundSendPrompt, CommandModalPayload, CostCommandData, HelpCommandData, MarkSessionProcessing, ModelCommandData, QueuedDraft, SendMessageWithAck, SessionActivityMap, StatusCommandData,QueuedSendOptions,ChatAttachment,ChatMessage,PendingPermissionRequest,PermissionMode,SessionEstablishedContext,Project,ProjectSession,LLMProvider,SlashCommand } from '@/shared/types';
 import { grantClaudeToolPermission } from '@/modules/chat/utils/chatPermissions';
 import {
   appendQueuedMessage,
@@ -53,13 +52,7 @@ type UseChatComposerStateArgs = {
   canAbortSession: boolean;
   tokenBudget: Record<string, unknown> | null;
   sendMessage: (message: unknown) => void;
-  sendMessageWithAck: (message: {
-    type: 'chat.send';
-    sessionId: string;
-    clientSendId: string;
-    content: string;
-    options: Record<string, unknown>;
-  }) => Promise<ChatSendStatus>;
+  sendMessageWithAck: SendMessageWithAck;
   socketReady: boolean;
   sendByCtrlEnter?: boolean;
   onSessionProcessing?: MarkSessionProcessing;
@@ -1085,6 +1078,9 @@ export function useChatComposerState({
           ...(queuedSubmission?.options ?? buildSendOptions(messageContent)),
           attachments: uploadedAttachments,
         };
+        // Use the receipt's server clock for reconciliation and ordering. The
+        // fallback is captured before waiting for an older server's reply.
+        let messageTimestamp = new Date();
         if (!editingAnchorId) {
           const previousSend = pendingSendRef.current;
           const clientSendId = previousSend?.sessionId === targetSessionId && previousSend.content === messageContent
@@ -1093,6 +1089,8 @@ export function useChatComposerState({
           const sendStatus = await sendMessageWithAck({
             type: 'chat.send', sessionId: targetSessionId, clientSendId,
             content: messageContent, options: sendOptions,
+          }, (timestamp) => {
+            messageTimestamp = new Date(timestamp);
           });
           let accepted = sendStatus === 'accepted';
           if (!accepted && pendingNewSessionRef.current?.sessionId === targetSessionId) {
@@ -1143,7 +1141,7 @@ export function useChatComposerState({
           content: currentInput,
           images: attachmentRecords.filter(isImageAttachment),
           files: attachmentRecords.filter((attachment) => !isImageAttachment(attachment)),
-          timestamp: new Date(),
+          timestamp: messageTimestamp,
           // Tags this echo as the replacement, so the truncation the server
           // broadcasts a moment later cuts the turns being replaced without
           // taking the message the user just sent with them.
