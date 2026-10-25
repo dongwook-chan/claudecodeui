@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 
 import { act, renderHook } from '@testing-library/react';
-import { beforeEach, test, vi } from 'vitest';
+import { afterEach, beforeEach, test, vi } from 'vitest';
 
 import { useChatComposerState } from '@/modules/chat/hooks/useChatComposerState';
+import { removeOptimisticUserEchoes } from '@/modules/chat/utils/sessionMessageReconciliation';
 import { readDraftText, resetChatDrafts, writeDraftText } from '@/shared/chatDrafts';
-import type { PermissionMode, Project, ProjectSession } from '@/shared/types';
+import type { ChatMessage, NormalizedMessage, PermissionMode, Project, ProjectSession } from '@/shared/types';
 
 /**
  * Drafts used to be keyed by project, so every session in a project shared one
@@ -55,8 +56,9 @@ vi.mock('@/shared/api', () => {
 
 const renderComposer = (
   selectedSession: ProjectSession | null,
-  sendMessageWithAck: () => Promise<'accepted' | 'not_sent' | 'unconfirmed'> = async () => 'accepted',
+  sendMessageWithAck: (message: unknown, onAccepted?: (timestamp: string) => void) => Promise<'accepted' | 'not_sent' | 'unconfirmed'> = async () => 'accepted',
   onSessionEstablished?: (sessionId: string) => void,
+  addMessage: (message: ChatMessage) => void = () => undefined,
 ) => renderHook(
   ({ session }: { session: ProjectSession | null }) => useChatComposerState({
     selectedProject: PROJECT,
@@ -76,7 +78,7 @@ const renderComposer = (
     socketReady: true,
     onSessionEstablished,
     scrollToBottom: () => undefined,
-    addMessage: () => undefined,
+    addMessage,
     setIsUserScrolledUp: () => undefined,
     setPendingPermissionRequests: () => undefined,
   }),
@@ -88,6 +90,38 @@ beforeEach(() => {
   // The drafts store is a module-level singleton, so its in-memory copy
   // outlives localStorage.clear() and would leak one test's drafts into the next.
   resetChatDrafts();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+test('a fast browser clock and delayed acknowledgement do not duplicate the persisted prompt', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-10-25T15:39:37.000Z'));
+  const acceptedAt = '2026-10-25T15:39:18.000Z';
+  const addMessage = vi.fn();
+  const view = renderComposer({ id: 'session-a' }, async (_message, onAccepted) => {
+    vi.setSystemTime(new Date('2026-10-25T15:40:37.000Z'));
+    onAccepted?.(acceptedAt);
+    return 'accepted';
+  }, undefined, addMessage);
+  await act(async () => { view.result.current.setInput('why was that model selected?'); });
+
+  await act(async () => {
+    await view.result.current.handleSubmit({ preventDefault: () => undefined } as never);
+  });
+
+  const sent = addMessage.mock.calls[0]?.[0] as ChatMessage;
+  assert.equal(new Date(sent.timestamp).toISOString(), acceptedAt);
+  const persisted: NormalizedMessage = {
+    id: 'codex-prompt', sessionId: 'session-a', provider: 'codex', kind: 'text', role: 'user',
+    content: sent.content, timestamp: '2026-10-25T15:39:20.000Z',
+  };
+  const local: NormalizedMessage = {
+    ...persisted, id: 'local_prompt', timestamp: new Date(sent.timestamp).toISOString(),
+  };
+  assert.deepEqual(removeOptimisticUserEchoes([persisted], [local]), []);
 });
 
 test('a draft is stored under the open session, not the project', async () => {
