@@ -261,6 +261,26 @@ export type SessionActivitySnapshot = {
 
 //----------------- REALTIME TRANSPORT ------------
 
+/** Outcome of a chat submission; only `accepted` confirms a durable server receipt. */
+export type ChatSendStatus = 'accepted' | 'not_sent' | 'unconfirmed';
+
+/**
+ * Used by the WebSocket context and chat composer to confirm delivery. When a
+ * receipt includes its original server acceptance time, `onAccepted` receives
+ * that ISO timestamp before the promise resolves, so the local user row and
+ * provider history share a clock even if the browser clock is inaccurate.
+ */
+export type SendMessageWithAck = (
+  message: {
+    type: 'chat.send';
+    sessionId: string;
+    clientSendId: string;
+    content: string;
+    options: Record<string, unknown>;
+  },
+  onAccepted?: (timestamp: string) => void,
+) => Promise<ChatSendStatus>;
+
 /**
  * One frame received from the chat websocket. The server guarantees every
  * frame carries a `kind` (provider message kinds plus gateway kinds such as
