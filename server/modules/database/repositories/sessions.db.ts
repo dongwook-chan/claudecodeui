@@ -79,6 +79,19 @@ export const sessionsDb = {
     ).get(sessionId, requestId));
   },
 
+  /**
+   * The WebSocket module timestamps user echoes with this durable acceptance
+   * time. SQLite's UTC value is returned as ISO 8601, including for retries;
+   * missing receipts or legacy null timestamps return null.
+   */
+  getAcceptedClientSendTimestamp(sessionId: string, requestId: string): string | null {
+    const row = getConnection().prepare(
+      `SELECT strftime('%Y-%m-%dT%H:%M:%fZ', accepted_at) AS timestamp
+       FROM session_send_receipts WHERE session_id = ? AND request_id = ?`
+    ).get(sessionId, requestId) as { timestamp: string | null } | undefined;
+    return row?.timestamp ?? null;
+  },
+
   /** The WebSocket module stores acceptance before provider execution begins. */
   recordAcceptedClientSend(sessionId: string, requestId: string): void {
     const db = getConnection();
