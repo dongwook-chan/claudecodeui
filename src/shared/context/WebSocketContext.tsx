@@ -3,7 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { useAuth } from '@/modules/auth';
 import { IS_PLATFORM } from '@/shared/utils';
 import { expireAuthSession, isAuthTokenExpired } from '@/shared/authToken';
-import type { ServerEvent } from '@/shared/types';
+import type { ChatSendStatus, SendMessageWithAck, ServerEvent } from '@/shared/types';
 
 
 type ServerEventListener = (event: ServerEvent) => void;
@@ -16,21 +16,11 @@ type ServerEventListener = (event: ServerEvent) => void;
  */
 type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
 
-export type ChatSendStatus = 'accepted' | 'not_sent' | 'unconfirmed';
-
-type ConfirmedChatSend = {
-  type: 'chat.send';
-  sessionId: string;
-  clientSendId: string;
-  content: string;
-  options: Record<string, unknown>;
-};
-
 type WebSocketContextType = {
   ws: WebSocket | null;
   sendMessage: (message: unknown) => void;
   /** Resolves only after the server confirms that it registered this turn. */
-  sendMessageWithAck: (message: ConfirmedChatSend) => Promise<ChatSendStatus>;
+  sendMessageWithAck: SendMessageWithAck;
   /**
    * Subscribes to every websocket frame. Returns an unsubscribe function.
    *
@@ -92,6 +82,7 @@ const useWebSocketProviderState = (): WebSocketContextType => {
     sessionId: string;
     timer: ReturnType<typeof setTimeout>;
     resolve: (status: ChatSendStatus) => void;
+    onAccepted?: (timestamp: string) => void;
   }>());
   const { isLoading: isAuthLoading, token, user } = useAuth();
 
@@ -144,6 +135,9 @@ const useWebSocketProviderState = (): WebSocketContextType => {
           if (data.kind === 'chat_send_accepted' && typeof data.clientSendId === 'string') {
             const pending = pendingChatAcksRef.current.get(data.clientSendId);
             if (pending?.socket === websocket && pending.sessionId === data.sessionId) {
+              if (typeof data.timestamp === 'string' && Number.isFinite(Date.parse(data.timestamp))) {
+                pending.onAccepted?.(data.timestamp);
+              }
               settleChatAck(data.clientSendId, 'accepted');
             }
             return;
@@ -234,7 +228,7 @@ const useWebSocketProviderState = (): WebSocketContextType => {
     }
   }, []);
 
-  const sendMessageWithAck = useCallback((message: ConfirmedChatSend): Promise<ChatSendStatus> =>
+  const sendMessageWithAck = useCallback<SendMessageWithAck>((message, onAccepted) =>
     new Promise((resolve) => {
       const socket = wsRef.current;
       if (!socket || socket.readyState !== WebSocket.OPEN) {
@@ -247,7 +241,7 @@ const useWebSocketProviderState = (): WebSocketContextType => {
       }
       const timer = setTimeout(() => settleChatAck(message.clientSendId, 'unconfirmed'), 8000);
       pendingChatAcksRef.current.set(message.clientSendId, {
-        socket, sessionId: message.sessionId, timer, resolve,
+        socket, sessionId: message.sessionId, timer, resolve, onAccepted,
       });
       try {
         socket.send(JSON.stringify(message));
