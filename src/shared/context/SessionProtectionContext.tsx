@@ -18,6 +18,7 @@ type RunningSessionApiItem = {
   startedAt?: unknown;
   statusText?: unknown;
   canInterrupt?: unknown;
+  queued?: unknown;
   background?: unknown;
   tasks?: unknown;
 };
@@ -41,6 +42,7 @@ const SessionProtectionStateContext = createContext<SessionActivityMap | null>(n
 const SessionProtectionActionsContext = createContext<SessionProtectionActions | null>(null);
 const BusySessionIdsContext = createContext<ReadonlySet<string> | null>(null);
 const BackgroundSessionIdsContext = createContext<ReadonlySet<string> | null>(null);
+const QueuedSessionIdsContext = createContext<ReadonlySet<string> | null>(null);
 
 /**
  * The set of session ids whose activity passes `include`, with a stable
@@ -72,6 +74,7 @@ function useSessionIdSet(
 
 const isAnyActivity = () => true;
 const isBackgroundOnly = (activity: SessionActivity) => Boolean(activity.background);
+const isQueued = (activity: SessionActivity) => Boolean(activity.queued);
 
 const parseStartedAt = (value: unknown): number | undefined => {
   if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
@@ -154,6 +157,7 @@ export function SessionProtectionProvider({ children }: { children: ReactNode })
               startedAt: parseStartedAt(session.startedAt),
               statusText: typeof session.statusText === 'string' ? session.statusText : undefined,
               canInterrupt: typeof session.canInterrupt === 'boolean' ? session.canInterrupt : undefined,
+              queued: session.queued === true,
               background: session.background === true,
               tasks: parseBackgroundTasks(session.tasks),
             };
@@ -198,14 +202,17 @@ export function SessionProtectionProvider({ children }: { children: ReactNode })
 
   const busySessionIds = useSessionIdSet(processingSessions, isAnyActivity);
   const backgroundSessionIds = useSessionIdSet(processingSessions, isBackgroundOnly);
+  const queuedSessionIds = useSessionIdSet(processingSessions, isQueued);
 
   return (
     <SessionProtectionActionsContext.Provider value={actions}>
       <BusySessionIdsContext.Provider value={busySessionIds}>
         <BackgroundSessionIdsContext.Provider value={backgroundSessionIds}>
-          <SessionProtectionStateContext.Provider value={processingSessions}>
-            {children}
-          </SessionProtectionStateContext.Provider>
+          <QueuedSessionIdsContext.Provider value={queuedSessionIds}>
+            <SessionProtectionStateContext.Provider value={processingSessions}>
+              {children}
+            </SessionProtectionStateContext.Provider>
+          </QueuedSessionIdsContext.Provider>
         </BackgroundSessionIdsContext.Provider>
       </BusySessionIdsContext.Provider>
     </SessionProtectionActionsContext.Provider>
@@ -244,6 +251,13 @@ export function useProcessingSessions(): SessionActivityMap {
     throw new Error('useProcessingSessions must be used within SessionProtectionProvider');
   }
   return processingSessions;
+}
+
+/** Sidebar subscribes only to retry-queue membership, avoiding redraws on ordinary status text changes. */
+export function useQueuedSessionIdSet(): ReadonlySet<string> {
+  const queued = useContext(QueuedSessionIdsContext);
+  if (!queued) throw new Error('useQueuedSessionIdSet must be used within SessionProtectionProvider');
+  return queued;
 }
 
 export function useSessionProtectionActions(): SessionProtectionActions {
