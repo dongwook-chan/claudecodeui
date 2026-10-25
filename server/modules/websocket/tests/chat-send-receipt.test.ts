@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { closeConnection, initializeDatabase, sessionsDb } from '@/modules/database/index.js';
+import { closeConnection, getConnection, initializeDatabase, sessionsDb } from '@/modules/database/index.js';
 import { chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.service.js';
 import { handleChatConnection } from '@/modules/websocket/services/chat-websocket.service.js';
 import { connectedClients } from '@/modules/websocket/services/websocket-state.service.js';
@@ -71,6 +71,41 @@ test('chat.send acknowledges durable receipt and an identical retry does not rer
     assert.equal(acknowledgements.length, 2);
     assert.equal(acknowledgements[0]?.duplicate, false);
     assert.equal(acknowledgements[1]?.duplicate, true);
+    assert.equal(typeof acknowledgements[0]?.timestamp, 'string');
+    assert.ok(Number.isFinite(Date.parse(String(acknowledgements[0]?.timestamp))));
+    assert.equal(acknowledgements[1]?.timestamp, acknowledgements[0]?.timestamp);
+  });
+});
+
+test('a retry returns the stored acceptance time rather than the retry time', async () => {
+  await withIsolatedDatabase(async () => {
+    const requestId = '5e7df7e5-3a61-47c3-a604-b8b9e52c5852';
+    sessionsDb.createAppSession('app-session', 'codex', '/workspace/demo');
+    sessionsDb.recordAcceptedClientSend('app-session', requestId);
+    getConnection().prepare('UPDATE session_send_receipts SET accepted_at = ? WHERE session_id = ?')
+      .run('2026-10-25 15:39:18', 'app-session');
+    const connection = new FakeConnection();
+    let runCount = 0;
+    handleChatConnection(connection as never, { user: { id: 1 } } as never, {
+      runtime: {
+        hasRuntime: () => true,
+        run: async () => { runCount += 1; },
+        abort: async () => false,
+        resolveToolApproval: () => undefined,
+        getPendingApprovalsForSession: () => [],
+        stopBackgroundTask: async () => false,
+        hasBackgroundWork: () => false,
+      },
+    });
+    connection.emit('message', Buffer.from(JSON.stringify({
+      type: 'chat.send', sessionId: 'app-session', clientSendId: requestId, content: 'hello',
+    })));
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.equal(runCount, 0);
+    const receipt = connection.frames.find((frame) => frame.kind === 'chat_send_accepted');
+    assert.equal(receipt?.timestamp, '2026-10-25T15:39:18.000Z');
+    assert.equal(receipt?.duplicate, true);
   });
 });
 
