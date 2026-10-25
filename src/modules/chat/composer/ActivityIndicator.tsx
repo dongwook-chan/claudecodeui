@@ -81,6 +81,7 @@ export default function ActivityIndicator({ activity, onAbort, isInputFocused = 
   if (!renderedActivity) return null;
 
   const isBackground = Boolean(renderedActivity.background);
+  const isQueued = Boolean(renderedActivity.queued);
   const actionWords = ACTION_KEYS.map((key, i) => t(key, { defaultValue: DEFAULT_ACTION_WORDS[i] }));
   const label = isBackground
     ? t('claudeStatus.backgroundWork', 'Background work')
@@ -110,11 +111,12 @@ export default function ActivityIndicator({ activity, onAbort, isInputFocused = 
         <div className={`${tabSurfaceClassName} min-w-0 max-w-full gap-2`}>
           <span
             className={`h-1.5 w-1.5 shrink-0 animate-pulse rounded-full ${
-              isBackground ? 'bg-purple-500 dark:bg-purple-400' : 'bg-primary'
+              isQueued ? 'bg-amber-500' : isBackground ? 'bg-purple-500 dark:bg-purple-400' : 'bg-primary'
             }`}
             aria-hidden
           />
-          <Shimmer className="shrink-0 font-medium">{`${label}…`}</Shimmer>
+          {isQueued ? <span role="status" className="shrink-0 font-medium text-amber-700 dark:text-amber-400">{label}</span>
+            : <Shimmer className="shrink-0 font-medium">{`${label}…`}</Shimmer>}
           {detail && (
             <span className="min-w-0 truncate text-muted-foreground" title={detail}>{detail}</span>
           )}
@@ -126,12 +128,12 @@ export default function ActivityIndicator({ activity, onAbort, isInputFocused = 
             type="button"
             onClick={onAbort}
             className={`${tabSurfaceClassName} pointer-events-auto gap-1.5 text-muted-foreground hover:bg-card hover:text-destructive`}
-            aria-label={t('claudeStatus.stop', { defaultValue: 'Stop' })}
+            aria-label={isQueued ? t('claudeStatus.cancelQueued', { defaultValue: 'Cancel queued retry' }) : t('claudeStatus.stop', { defaultValue: 'Stop' })}
           >
             <svg className="h-2.5 w-2.5 fill-current" viewBox="0 0 24 24" aria-hidden>
               <rect x="5" y="5" width="14" height="14" rx="2" />
             </svg>
-            <span>{t('claudeStatus.stop', { defaultValue: 'Stop' })}</span>
+            <span>{isQueued ? t('claudeStatus.cancel', { defaultValue: 'Cancel' }) : t('claudeStatus.stop', { defaultValue: 'Stop' })}</span>
             <kbd className="hidden rounded border border-border/60 px-1 text-[10px] text-muted-foreground/70 sm:inline-block">
               esc
             </kbd>

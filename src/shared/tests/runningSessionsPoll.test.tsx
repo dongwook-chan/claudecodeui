@@ -23,6 +23,24 @@ beforeEach(() => {
   runningSessions.mockReset();
 });
 
+test('the poll preserves queued membership and clears it when the native retry starts', async () => {
+  let queued = true;
+  runningSessions.mockImplementation(async () => ({ ok: true, json: async () => ({ data: { sessions: [{
+    sessionId: 'queued-session', startedAt: 1_700_000_000_000, queued, statusText: queued ? 'Queued · #2' : 'Running in the Codex CLI',
+  }] } }) }));
+  const { SessionProtectionProvider, useProcessingSessions, useSessionProtectionActions, useQueuedSessionIdSet } = await import('@/shared/context/SessionProtectionContext');
+  const wrapper = ({ children }: { children: React.ReactNode }) => React.createElement(SessionProtectionProvider, null, children);
+  const { result } = renderHook(() => ({ activities: useProcessingSessions(), queued: useQueuedSessionIdSet(),
+    actions: useSessionProtectionActions() }), { wrapper });
+  await waitFor(() => assert.equal(result.current.activities.get('queued-session')?.queued, true));
+  assert.equal(result.current.queued.has('queued-session'), true);
+  queued = false;
+  const { act } = await import('@testing-library/react');
+  act(() => result.current.actions.syncProcessingSessions([{ sessionId: 'queued-session', startedAt: 1_700_000_000_000 }]));
+  assert.equal(result.current.activities.get('queued-session')?.queued, undefined);
+  assert.equal(result.current.queued.has('queued-session'), false);
+});
+
 test('the poll carries each task through whole, nested flag included', async () => {
   runningSessions.mockResolvedValue({
     ok: true,
