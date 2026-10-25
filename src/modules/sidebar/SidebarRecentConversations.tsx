@@ -118,6 +118,7 @@ export default function SidebarRecentConversations({
           const age = formatCompactAge(conversation.lastActivity, currentTime);
           const hasBackgroundWork = sessionActions.backgroundSessionIds.has(conversation.sessionId);
           const isProcessing = sessionActions.activeSessions.has(conversation.sessionId) && !hasBackgroundWork;
+          const isQueued = sessionActions.queuedSessionIds?.has(conversation.sessionId);
           const showAttentionIndicator =
             sessionActions.attentionSessionIds.has(conversation.sessionId) && !isSelected;
           // Resolved per row so a keystroke in one rename does not redraw the rest.
@@ -184,7 +185,9 @@ export default function SidebarRecentConversations({
                   </span>
                   <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] leading-3 text-muted-foreground">
                     <span className="truncate">{conversation.projectDisplayName}</span>
-                    {isProcessing ? (
+                    {isQueued ? (
+                      <span role="status" className="shrink-0 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-400">Queued</span>
+                    ) : isProcessing ? (
                       <>
                         <span className="flex-shrink-0 text-muted-foreground/40">·</span>
                         <Tooltip content={t('tooltips.processingSessionIndicator', 'Processing session')} position="top">
