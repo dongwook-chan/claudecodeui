@@ -23,6 +23,7 @@ const sessionActivitiesMatch = (left: SessionActivity, right: SessionActivity): 
   && left.canInterrupt === right.canInterrupt
   && left.startedAt === right.startedAt
   && Boolean(left.background) === Boolean(right.background)
+  && Boolean(left.queued) === Boolean(right.queued)
   && backgroundTasksKey(left.tasks) === backgroundTasksKey(right.tasks);
 
 const sessionActivityMapsMatch = (
@@ -192,6 +193,7 @@ export function useSessionProtection() {
           statusText:
             snapshot.statusText !== undefined ? snapshot.statusText : existing?.statusText ?? null,
           canInterrupt: snapshot.canInterrupt ?? existing?.canInterrupt ?? true,
+          ...(snapshot.queued ? { queued: true } : {}),
           startedAt: snapshotStartedAt ?? existing?.startedAt ?? now,
           ...(snapshot.background ? { background: true } : {}),
           ...(snapshot.tasks ? { tasks: snapshot.tasks } : {}),
