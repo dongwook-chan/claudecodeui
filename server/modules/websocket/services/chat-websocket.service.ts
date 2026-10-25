@@ -243,10 +243,13 @@ async function dispatchRun(
 ): Promise<{ started: boolean; error: string | null }> {
   const provider = session.provider as LLMProvider;
 
-  const external = await sessionsService.getExternalSessionActivity(sessionId);
+  const external = await sessionsService.getExternalSessionActivity(sessionId, { includeIdle: true });
   if (external && !chatRunRegistry.isProcessing(sessionId)) {
     const cliName = external.provider === 'antigravity' ? 'Antigravity' : 'Codex';
-    if (ws) sendProtocolError(ws, 'RUN_IN_PROGRESS', `This session is running in the ${cliName} CLI. Wait for it to finish or stop it in that CLI.`, sessionId);
+    const message = external.statusText === 'Open in the Codex CLI'
+      ? 'This session is idle but still open in the Codex CLI. Close it there before sending from CloudCLI.'
+      : `This session is running in the ${cliName} CLI. Wait for it to finish or stop it in that CLI.`;
+    if (ws) sendProtocolError(ws, 'RUN_IN_PROGRESS', message, sessionId);
     return { started: false, error: `A ${cliName} CLI writer already owns this session.` };
   }
 
