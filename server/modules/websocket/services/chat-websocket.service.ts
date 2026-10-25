@@ -164,7 +164,10 @@ async function handleChatSend(
     return;
   }
   if (clientSendId && sessionsDb.wasClientSendAccepted(resolved.sessionId, clientSendId)) {
-    sendJson(ws, { kind: 'chat_send_accepted', sessionId: resolved.sessionId, clientSendId, duplicate: true });
+    sendJson(ws, {
+      kind: 'chat_send_accepted', sessionId: resolved.sessionId, clientSendId, duplicate: true,
+      timestamp: sessionsDb.getAcceptedClientSendTimestamp(resolved.sessionId, clientSendId),
+    });
     return;
   }
 
@@ -172,7 +175,10 @@ async function handleChatSend(
     ws, userId, resolved.sessionId, resolved.session, data, dependencies, {},
     clientSendId ? () => {
       sessionsDb.recordAcceptedClientSend(resolved.sessionId, clientSendId);
-      sendJson(ws, { kind: 'chat_send_accepted', sessionId: resolved.sessionId, clientSendId, duplicate: false });
+      sendJson(ws, {
+        kind: 'chat_send_accepted', sessionId: resolved.sessionId, clientSendId, duplicate: false,
+        timestamp: sessionsDb.getAcceptedClientSendTimestamp(resolved.sessionId, clientSendId),
+      });
     } : undefined,
   );
 }
