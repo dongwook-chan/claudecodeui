@@ -29,11 +29,12 @@ test('external Codex ownership survives subscribe, rejects duplicate sends and s
   try {
     sessionsDb.createAppSession('external-app', 'codex', directory);
     let external = true;
+    let processing = true;
     let stopSucceeds = false;
     let started = 0;
-    sessionsService.getExternalSessionActivity = async (sessionId) => external ? {
+    sessionsService.getExternalSessionActivity = async (sessionId, options) => external && (processing || options?.includeIdle) ? {
       sessionId, provider: 'codex', startedAt: 1, lastSeq: 0,
-      canInterrupt: true, external: true, statusText: 'Running in the Codex CLI',
+      canInterrupt: true, external: true, statusText: processing ? 'Running in the Codex CLI' : 'Open in the Codex CLI',
     } : null;
     sessionsService.abortExternalSession = async () => {
       if (stopSucceeds) external = false;
@@ -71,6 +72,17 @@ test('external Codex ownership survives subscribe, rejects duplicate sends and s
     assert.equal(started, 0);
     assert.equal(connection.frames.at(-1)?.code, 'RUN_IN_PROGRESS');
     assert.equal(sessionsDb.wasClientSendAccepted('external-app', clientSendId), false);
+
+    processing = false;
+    await dispatch({ type: 'chat.subscribe', sessions: [{ sessionId: 'external-app', lastSeq: 0 }] });
+    assert.equal(connection.frames.at(-1)?.isProcessing, false, 'retained ownership does not keep the progress indicator active');
+    await dispatch({ type: 'chat.send', sessionId: 'external-app', content: 'follow-up', clientSendId });
+    assert.equal(started, 0, 'idle ownership still prevents a conflicting second writer');
+    assert.match(String(connection.frames.at(-1)?.error), /idle but still open/);
+    assert.equal(sessionsDb.wasClientSendAccepted('external-app', clientSendId), false);
+    await dispatch({ type: 'chat.abort', sessionId: 'external-app' });
+    assert.equal(connection.frames.at(-1)?.code, 'NO_ACTIVE_RUN');
+    processing = true;
 
     await dispatch({ type: 'chat.abort', sessionId: 'external-app' });
     assert.equal(connection.frames.at(-1)?.code, 'ABORT_FAILED');

@@ -226,6 +226,7 @@ export const sessionsService = {
     }
 
     for (const live of await codexCliLivenessService.listSessions()) {
+      if (!live.isProcessing) continue;
       const session = sessionsDb.getSessionByProviderSessionId(live.providerSessionId);
       if (session?.provider !== 'codex' || runningById.has(session.session_id)) continue;
       const entry: RunningSessionEntry = {
@@ -260,8 +261,11 @@ export const sessionsService = {
     return entries;
   },
 
-  /** Chat send/subscribe and fork consult the native writer even before the next sidebar poll. */
-  async getExternalSessionActivity(sessionId: string): Promise<RunningSessionEntry | null> {
+  /**
+   * Chat subscribe/abort reports active turns. Send and fork pass includeIdle
+   * to protect a retained native writer even when its last turn has finished.
+   */
+  async getExternalSessionActivity(sessionId: string, options: { includeIdle?: boolean } = {}): Promise<RunningSessionEntry | null> {
     const session = sessionsDb.getSessionById(sessionId);
     if (!session?.provider_session_id) return null;
     const live = session.provider === 'codex'
@@ -270,6 +274,8 @@ export const sessionsService = {
         ? await antigravityCliLivenessService.getSession(session.provider_session_id)
         : null;
     if (!live) return null;
+    const idle = 'isProcessing' in live && !live.isProcessing;
+    if (idle && !options.includeIdle) return null;
     return {
       sessionId,
       provider: session.provider as LLMProvider,
@@ -277,7 +283,7 @@ export const sessionsService = {
       lastSeq: 0,
       canInterrupt: live.canInterrupt,
       external: true,
-      statusText: `Running in the ${session.provider === 'antigravity' ? 'Antigravity' : 'Codex'} CLI`,
+      statusText: `${idle ? 'Open' : 'Running'} in the ${session.provider === 'antigravity' ? 'Antigravity' : 'Codex'} CLI`,
     };
   },
 
@@ -443,9 +449,11 @@ export const sessionsService = {
     }
 
     const provider = source.provider as LLMProvider;
-    const external = await this.getExternalSessionActivity(sessionId);
+    const external = await this.getExternalSessionActivity(sessionId, { includeIdle: true });
     if (chatRunRegistry.isProcessing(sessionId) || external) {
-      throw new AppError('Wait for this session to finish or stop it before forking.', {
+      throw new AppError(external?.statusText === 'Open in the Codex CLI'
+        ? 'Close this session in the Codex CLI before forking; its writer is still open.'
+        : 'Wait for this session to finish or stop it before forking.', {
         code: 'RUN_IN_PROGRESS',
         statusCode: 409,
       });
