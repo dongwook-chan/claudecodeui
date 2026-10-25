@@ -76,6 +76,13 @@ const renderList = (
   />,
 );
 
+test('queued recoveries show a badge in Conversations instead of the running spinner', () => {
+  const { getByText, container } = renderList([conversation('queued-session', { provider: 'codex' })],
+    makeActions({ activeSessions: new Set(['queued-session']), queuedSessionIds: new Set(['queued-session']) }));
+  assert.ok(getByText('Queued'));
+  assert.equal(container.querySelectorAll('.animate-spin').length, 0);
+});
+
 beforeEach(() => {
   recordedOptionsProps.length = 0;
 });
