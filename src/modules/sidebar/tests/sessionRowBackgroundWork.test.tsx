@@ -38,7 +38,7 @@ const PROJECT = { projectId: 'project-1', name: 'project-1', displayName: 'proje
 // Touched a minute ago, so the green "recently active" dot would apply.
 const SESSION = { id: 's1', summary: 'session one', lastActivity: '2026-08-21T09:59:00.000Z', __provider: 'claude' } as unknown as SessionWithProvider;
 
-const renderRow = (state: { isProcessing: boolean; hasBackgroundWork: boolean }) => render(
+const renderRow = (state: { isProcessing: boolean; hasBackgroundWork: boolean; isQueued?: boolean }) => render(
   React.createElement(SidebarSessionItem, {
     project: PROJECT,
     session: SESSION,
@@ -88,4 +88,11 @@ test('a response in flight still spins and shows no dot', () => {
   assert.equal(container.querySelector('[role="status"]'), null);
   assert.equal(container.querySelectorAll('.animate-spin').length, 1);
   assert.equal(recordedOptionsProps[0].isProcessing, true);
+});
+
+test('a queued retry has an explicit badge instead of the response spinner', () => {
+  const { container, getByText } = renderRow({ isProcessing: true, hasBackgroundWork: false, isQueued: true });
+  assert.ok(getByText('Queued'));
+  assert.equal(container.querySelectorAll('.animate-spin').length, 0);
+  assert.equal(recordedOptionsProps[0].isProcessing, true, 'fork/delete remain guarded while recovery is pending');
 });

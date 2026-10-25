@@ -27,6 +27,7 @@ export default function SidebarProjectList({
   loadingMoreProjects,
   activeSessions,
   backgroundSessionIds,
+  queuedSessionIds,
   attentionSessionIds,
   isProjectStarred,
   onRenameDraftChange,
@@ -125,6 +126,7 @@ export default function SidebarProjectList({
                 onLoadMoreSessions={onLoadMoreSessions}
                 activeSessions={activeSessions}
                 backgroundSessionIds={backgroundSessionIds}
+                queuedSessionIds={queuedSessionIds}
                 attentionSessionIds={attentionSessionIds}
                 onNewSession={onNewSession}
                 onStartEditingSession={onStartEditingSession}

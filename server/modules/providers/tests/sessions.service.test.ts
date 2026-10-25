@@ -9,6 +9,7 @@ import { providerRegistry } from '@/modules/providers/provider.registry.js';
 import { sessionsService } from '@/modules/providers/services/sessions.service.js';
 import { antigravityCliLivenessService } from '@/modules/providers/services/antigravity-cli-liveness.service.js';
 import { codexCliLivenessService } from '@/modules/providers/services/codex-cli-liveness.service.js';
+import { agentxQueueService } from '@/modules/providers/services/agentx-queue.service.js';
 import { chatRunRegistry } from '@/modules/websocket/index.js';
 import type { IProvider } from '@/shared/interfaces.js';
 import type { BackgroundTaskSummary } from '@/shared/types.js';
@@ -41,6 +42,33 @@ test('provider session id returns the mapped native id', { concurrency: false },
 
     assert.equal(sessionsService.getProviderSessionId('app-session-id'), 'codex-native-session-id');
   });
+});
+
+test('AgentX waiting sessions map to app ids, are external to deployment, and cancel through the queue', { concurrency: false }, async () => {
+  const originalList = agentxQueueService.listSessions;
+  const originalGet = agentxQueueService.getSession;
+  const originalCancel = agentxQueueService.cancelSession;
+  const entry = { sessionId: 'queued-native', queuedAt: 100, nextRetryAt: 200, queuePosition: 2, attempts: 3 };
+  let waiting = true;
+  agentxQueueService.listSessions = async () => waiting ? [entry] : [];
+  agentxQueueService.getSession = async () => waiting ? entry : null;
+  agentxQueueService.cancelSession = async (id) => { assert.equal(id, 'queued-native'); waiting = false; return true; };
+  try {
+    await withIsolatedDatabase(async () => {
+      sessionsDb.createAppSession('queued-app', 'codex', '/tmp/queued-project');
+      sessionsDb.assignProviderSessionId('queued-app', 'queued-native');
+      const expected = { sessionId: 'queued-app', provider: 'codex', startedAt: 100, lastSeq: 0,
+        queued: true, canInterrupt: true, external: true, statusText: 'Queued · #2' };
+      assert.deepEqual((await sessionsService.listRunningSessions()).find((value) => value.sessionId === 'queued-app'), expected);
+      assert.deepEqual(await sessionsService.getExternalSessionActivity('queued-app'), expected);
+      assert.equal(await sessionsService.abortExternalSession('queued-app'), true);
+      assert.equal((await sessionsService.listRunningSessions()).some((value) => value.sessionId === 'queued-app'), false);
+    });
+  } finally {
+    agentxQueueService.listSessions = originalList;
+    agentxQueueService.getSession = originalGet;
+    agentxQueueService.cancelSession = originalCancel;
+  }
 });
 
 test('external Codex writers are reported with app ids and cannot be forked', { concurrency: false }, async () => {
