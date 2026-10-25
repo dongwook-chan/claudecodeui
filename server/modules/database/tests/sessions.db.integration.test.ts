@@ -75,11 +75,16 @@ test('createSession reactivates archived rows when the session becomes active ag
 test('accepted send receipts survive a database reopen and prevent discarding the session', async () => {
   await withIsolatedDatabase(async () => {
     sessionsDb.createAppSession('send-receipt', 'codex', '/workspace/demo-project');
+    assert.equal(sessionsDb.getAcceptedClientSendTimestamp('send-receipt', 'request-1'), null);
     sessionsDb.recordAcceptedClientSend('send-receipt', 'request-1');
+    const acceptedAt = sessionsDb.getAcceptedClientSendTimestamp('send-receipt', 'request-1');
+    assert.match(acceptedAt ?? '', /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
     closeConnection();
     await initializeDatabase();
 
     assert.equal(sessionsDb.wasClientSendAccepted('send-receipt', 'request-1'), true);
+    sessionsDb.recordAcceptedClientSend('send-receipt', 'request-1');
+    assert.equal(sessionsDb.getAcceptedClientSendTimestamp('send-receipt', 'request-1'), acceptedAt);
     assert.equal(sessionsDb.discardUnsentSession('send-receipt'), 'accepted');
     assert.ok(sessionsDb.getSessionById('send-receipt'));
   });
