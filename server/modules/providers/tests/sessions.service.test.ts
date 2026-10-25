@@ -74,7 +74,7 @@ test('AgentX waiting sessions map to app ids, are external to deployment, and ca
 test('external Codex writers are reported with app ids and cannot be forked', { concurrency: false }, async () => {
   const originalList = codexCliLivenessService.listSessions;
   const originalGet = codexCliLivenessService.getSession;
-  const live = { providerSessionId: 'native-codex', pid: 123, procStart: '456', startedAt: 789, canInterrupt: true };
+  const live = { providerSessionId: 'native-codex', pid: 123, procStart: '456', startedAt: 789, canInterrupt: true, isProcessing: true };
   codexCliLivenessService.listSessions = async () => [live];
   codexCliLivenessService.getSession = async () => live;
   try {
@@ -88,6 +88,14 @@ test('external Codex writers are reported with app ids and cannot be forked', { 
       });
       await assert.rejects(() => sessionsService.forkSessionById('external-app'),
         (error: Error & { code?: string; statusCode?: number }) => error.code === 'RUN_IN_PROGRESS' && error.statusCode === 409);
+
+      live.isProcessing = false;
+      assert.equal((await sessionsService.listRunningSessions()).some((entry) => entry.sessionId === 'external-app'), false);
+      assert.equal(await sessionsService.getExternalSessionActivity('external-app'), null);
+      assert.equal((await sessionsService.getExternalSessionActivity('external-app', { includeIdle: true }))?.statusText, 'Open in the Codex CLI');
+      await assert.rejects(() => sessionsService.forkSessionById('external-app'),
+        (error: Error & { code?: string }) => error.code === 'RUN_IN_PROGRESS' && /writer is still open/.test(error.message));
+      live.isProcessing = true;
 
       chatRunRegistry.startRun({ appSessionId: 'external-app', provider: 'codex', providerSessionId: live.providerSessionId, connection: null, userId: null });
       const managedEntries = (await sessionsService.listRunningSessions()).filter((entry) => entry.sessionId === 'external-app');
