@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -38,14 +38,26 @@ async function withWriter(
 
 test('a held native writer lock reports the dedicated Codex exec process', async () => {
   await withWriter(async ({ procRoot, codexHome }) => {
-    const service = createCodexCliLivenessService({ procRoot, getCodexHome: () => codexHome });
+    const service = createCodexCliLivenessService({ procRoot, getCodexHome: () => codexHome, getRolloutPath: () => null });
     const sessions = await service.listSessions();
     assert.equal(sessions.length, 1);
     assert.equal(sessions[0].providerSessionId, THREAD_ID);
     assert.equal(sessions[0].pid, PID);
     assert.equal(sessions[0].procStart, '789');
     assert.equal(sessions[0].canInterrupt, true);
+    assert.equal(sessions[0].isProcessing, true);
     assert.ok(sessions[0].startedAt > 0);
+  });
+});
+
+test('a dedicated exec remains processing until it releases ownership, even after persisting completion', async () => {
+  await withWriter(async ({ directory, procRoot, codexHome }) => {
+    const rollout = path.join(directory, 'rollout.jsonl');
+    await writeFile(rollout, JSON.stringify({ type: 'event_msg', payload: { type: 'task_complete' } }) + '\n');
+    const service = createCodexCliLivenessService({ procRoot, getCodexHome: () => codexHome, getRolloutPath: () => rollout });
+    assert.equal((await service.getSession(THREAD_ID))?.isProcessing, true);
+    await writeFile(path.join(procRoot, 'locks'), '');
+    assert.equal(await service.getSession(THREAD_ID), null);
   });
 });
 
@@ -61,7 +73,7 @@ test('stale files, waiting locks and unrelated inodes do not make a session busy
 
 test('a vanished owner is ignored and app-server writers are never interruptible', async () => {
   await withWriter(async ({ procRoot, codexHome }) => {
-    const service = createCodexCliLivenessService({ procRoot, getCodexHome: () => codexHome });
+    const service = createCodexCliLivenessService({ procRoot, getCodexHome: () => codexHome, getRolloutPath: () => null });
     assert.equal((await service.getSession(THREAD_ID))?.canInterrupt, false);
     assert.equal(await service.abortSession(THREAD_ID), false);
     await rm(path.join(procRoot, String(PID)), { recursive: true });
@@ -90,9 +102,56 @@ test('a PID with a different process start time is never signaled', async () => 
   const signals: number[] = [];
   const service = createCodexCliLivenessService({ signal: (pid) => { signals.push(pid); } });
   let checks = 0;
-  service.getSession = async () => ({ providerSessionId: THREAD_ID, pid: PID, procStart: String(checks++), startedAt: 1, canInterrupt: true });
+  service.getSession = async () => ({ providerSessionId: THREAD_ID, pid: PID, procStart: String(checks++), startedAt: 1, canInterrupt: true, isProcessing: true });
   assert.equal(await service.abortSession(THREAD_ID), false);
   assert.deepEqual(signals, []);
+});
+
+test('a completed ping/pong turn retains ownership without reporting a persistent app-server as processing', async () => {
+  await withWriter(async ({ directory, procRoot, codexHome }) => {
+    const rollout = path.join(directory, 'rollout.jsonl');
+    await writeFile(rollout, [
+      { type: 'event_msg', timestamp: '2026-10-25T16:09:36.215Z', payload: { type: 'task_started', turn_id: 'ping' } },
+      { type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'pong' }] } },
+      { type: 'event_msg', timestamp: '2026-10-25T16:09:38.148Z', payload: { type: 'task_complete', turn_id: 'ping', last_agent_message: 'pong' } },
+    ].map((row) => JSON.stringify(row)).join('\n') + '\n');
+    const service = createCodexCliLivenessService({ procRoot, getCodexHome: () => codexHome, getRolloutPath: () => rollout });
+    const owner = await service.getSession(THREAD_ID);
+    assert.equal(owner?.isProcessing, false);
+    assert.equal(owner?.pid, PID, 'an idle session still has a verified exclusive writer');
+    assert.equal(owner?.canInterrupt, false);
+    assert.equal(await service.abortSession(THREAD_ID), false);
+
+    const startedAt = '2026-10-25T17:00:00.000Z';
+    await appendFile(rollout, JSON.stringify({ type: 'event_msg', timestamp: startedAt, payload: { type: 'task_started', turn_id: 'resume' } }) + '\n');
+    const resumed = await service.getSession(THREAD_ID);
+    assert.equal(resumed?.isProcessing, true, 'a new turn overrides the previous completion without restarting the owner');
+    assert.equal(resumed?.startedAt, Date.parse(startedAt));
+    await appendFile(rollout, JSON.stringify({ type: 'event_msg', payload: { type: 'turn_aborted', turn_id: 'resume' } }) + '\n');
+    assert.equal((await service.getSession(THREAD_ID))?.isProcessing, false);
+    await writeFile(path.join(procRoot, 'locks'), '');
+    assert.equal(await service.getSession(THREAD_ID), null, 'a transcript alone is not a live writer');
+  }, ['codex', 'app-server']);
+});
+
+test('persistent TUI activity reads bounded tails and remains conservative for incomplete or unavailable rollouts', async () => {
+  await withWriter(async ({ directory, procRoot, codexHome }) => {
+    const rollout = path.join(directory, 'rollout.jsonl');
+    const service = createCodexCliLivenessService({ procRoot, getCodexHome: () => codexHome, getRolloutPath: () => rollout });
+    assert.equal((await service.getSession(THREAD_ID))?.isProcessing, true, 'missing transcript is unknown, not proven idle');
+    const complete = JSON.stringify({ type: 'event_msg', payload: { type: 'task_complete' } }) + '\n';
+    const hugeResult = JSON.stringify({ type: 'response_item', payload: { type: 'function_call_output', output: 'x'.repeat(300_000) } }) + '\n';
+    await writeFile(rollout, hugeResult + complete);
+    assert.equal((await service.getSession(THREAD_ID))?.isProcessing, false, 'a large tool result before completion does not hide completion');
+    await appendFile(rollout, '{"type":"event_msg","payload":');
+    assert.equal((await service.getSession(THREAD_ID))?.isProcessing, true, 'a partly written new event must not expose an older idle boundary');
+    await writeFile(rollout, complete + hugeResult);
+    assert.equal((await service.getSession(THREAD_ID))?.isProcessing, true, 'no boundary within the bounded tail remains unknown');
+    await writeFile(rollout, complete + JSON.stringify({ type: 'response_item', payload: { type: 'message', content: 'task_started' } }) + '\n');
+    assert.equal((await service.getSession(THREAD_ID))?.isProcessing, false, 'message text is not a lifecycle event');
+    await writeFile(rollout, 'null\n[]\n');
+    assert.equal((await service.getSession(THREAD_ID))?.isProcessing, true);
+  }, ['codex']);
 });
 
 test('another executable holding a similarly named lock is ignored', async () => {
