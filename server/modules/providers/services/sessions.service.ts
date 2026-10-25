@@ -9,10 +9,12 @@ import { listBusyClaudeCliSessions } from '@/modules/providers/services/claude-c
 import { providerCapabilitiesService } from '@/modules/providers/services/provider-capabilities.service.js';
 import { antigravityCliLivenessService } from '@/modules/providers/services/antigravity-cli-liveness.service.js';
 import { codexCliLivenessService } from '@/modules/providers/services/codex-cli-liveness.service.js';
+import { agentxQueueService } from '@/modules/providers/services/agentx-queue.service.js';
 import { sessionHistoryCache } from '@/modules/providers/services/session-history-cache.service.js';
 import type {
   BackgroundTaskSummary,
   ClearedContextSegment,
+  AgentxQueuedSession,
   FetchHistoryOptions,
   FetchHistoryResult,
   LLMProvider,
@@ -47,6 +49,8 @@ type RunningSessionEntry = {
   /** This writer survives a CloudCLI restart and must not receive a recovery turn. */
   external?: true;
   statusText?: string;
+  /** Waiting in AgentX's retry FIFO, rather than producing a response. */
+  queued?: true;
   tasks?: BackgroundTaskSummary[];
   /** Deployment recovery reuses the run's explicit permissions and launch context. */
   resumeOptions?: SessionResumeOptions;
@@ -58,6 +62,11 @@ type CreateAppSessionResult = {
   projectPath: string;
   sessionName: string;
 };
+
+function queuedSessionEntry(sessionId: string, queued: AgentxQueuedSession): RunningSessionEntry {
+  return { sessionId, provider: 'codex', startedAt: queued.queuedAt, lastSeq: 0,
+    queued: true, canInterrupt: true, external: true, statusText: `Queued · #${queued.queuePosition}` };
+}
 
 type ArchivedSessionListItem = {
   sessionId: string;
@@ -399,6 +408,20 @@ export const sessionsService = {
       runningById.set(entry.sessionId, entry);
     }
 
+    for (const queued of await agentxQueueService.listSessions()) {
+      const session = sessionsDb.getSessionByProviderSessionId(queued.sessionId);
+      if (session?.provider !== 'codex') continue;
+      const entry = queuedSessionEntry(session.session_id, queued);
+      const existing = runningById.get(session.session_id);
+      if (existing) {
+        Object.assign(existing, entry);
+        delete existing.background;
+      } else {
+        entries.push(entry);
+        runningById.set(entry.sessionId, entry);
+      }
+    }
+
     return entries;
   },
 
@@ -409,6 +432,10 @@ export const sessionsService = {
   async getExternalSessionActivity(sessionId: string, options: { includeIdle?: boolean } = {}): Promise<RunningSessionEntry | null> {
     const session = sessionsDb.getSessionById(sessionId);
     if (!session?.provider_session_id) return null;
+    if (session.provider === 'codex') {
+      const queued = await agentxQueueService.getSession(session.provider_session_id);
+      if (queued) return queuedSessionEntry(sessionId, queued);
+    }
     const live = session.provider === 'codex'
       ? await codexCliLivenessService.getSession(session.provider_session_id)
       : session.provider === 'antigravity'
@@ -428,8 +455,11 @@ export const sessionsService = {
     };
   },
 
-  /** Chat abort stops only a verified dedicated external writer for this app session. */
+  /** Chat abort cancels queued recovery, or stops only this session's verified dedicated external writer. */
   async abortExternalSession(sessionId: string): Promise<boolean> {
+    const queuedSession = sessionsDb.getSessionById(sessionId);
+    if (queuedSession?.provider === 'codex' && queuedSession.provider_session_id
+      && await agentxQueueService.cancelSession(queuedSession.provider_session_id)) return true;
     const session = sessionsDb.getSessionById(sessionId);
     return session?.provider === 'codex' && Boolean(session.provider_session_id)
       ? codexCliLivenessService.abortSession(session.provider_session_id!)

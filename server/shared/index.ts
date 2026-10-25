@@ -32,3 +32,5 @@ export { getGlobalImageAssetsDir, isImageAttachmentDescriptor, normalizeAttachme
 // Provider synchronizers use these shared filesystem and transcript metadata helpers.
 export { buildLookupMap, extractFirstValidJsonlData, findFilesRecursivelyModifiedAfter, normalizeSessionName, readFileTimestamps, readObjectRecord, readOptionalString } from './utils.js';
 export type { IProviderSessionSynchronizer } from './interfaces.js';
+// Providers maps sanitized AgentX queue status to app-session activity.
+export type { AgentxQueuedSession } from './types.js';
