@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 
-import { act, render } from '@testing-library/react';
+import { act, render, renderHook } from '@testing-library/react';
 import { useEffect } from 'react';
 import { afterEach, beforeEach, test, vi } from 'vitest';
 
@@ -109,6 +109,43 @@ test('the first handshake reads as connecting, never as a lost connection', () =
   assert.equal(lastStatus(), 'connected');
   assert.equal(isConnected, true);
   assert.ok(!seen.includes('disconnected'), `statuses seen: ${seen.join(', ')}`);
+});
+
+test('a matching receipt supplies the original server time to the sender', async () => {
+  const view = renderHook(() => useWebSocket(), { wrapper: WebSocketProvider });
+  act(() => socket(0).serverOpens());
+  const accepted = vi.fn();
+  const request = {
+    type: 'chat.send' as const, sessionId: 'session-a',
+    clientSendId: '5e7df7e5-3a61-47c3-a604-b8b9e52c5852', content: 'hello', options: {},
+  };
+  const pending = view.result.current.sendMessageWithAck(request, accepted);
+  const receipt = {
+    kind: 'chat_send_accepted', sessionId: request.sessionId, clientSendId: request.clientSendId,
+    timestamp: '2026-10-25T15:39:18.000Z', duplicate: true,
+  };
+
+  act(() => socket(0).onmessage?.({ data: JSON.stringify({ ...receipt, sessionId: 'another-session' }) }));
+  assert.equal(accepted.mock.calls.length, 0);
+  act(() => socket(0).onmessage?.({ data: JSON.stringify(receipt) }));
+
+  assert.equal(await pending, 'accepted');
+  assert.deepEqual(accepted.mock.calls, [[receipt.timestamp]]);
+});
+
+test('legacy receipts without a valid timestamp still confirm delivery', async () => {
+  const view = renderHook(() => useWebSocket(), { wrapper: WebSocketProvider });
+  act(() => socket(0).serverOpens());
+  const accepted = vi.fn();
+  const pending = view.result.current.sendMessageWithAck({
+    type: 'chat.send', sessionId: 'session-a', clientSendId: 'request-a', content: 'hello', options: {},
+  }, accepted);
+  act(() => socket(0).onmessage?.({ data: JSON.stringify({
+    kind: 'chat_send_accepted', sessionId: 'session-a', clientSendId: 'request-a', timestamp: 'invalid',
+  }) }));
+
+  assert.equal(await pending, 'accepted');
+  assert.equal(accepted.mock.calls.length, 0);
 });
 
 test('a dropped socket reads as disconnected through every failed retry, until one opens', () => {
