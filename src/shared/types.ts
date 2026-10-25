@@ -198,6 +198,8 @@ export type SessionActivity = {
   /** Provider-supplied status line; null renders the default activity label. */
   statusText: string | null;
   canInterrupt: boolean;
+  /** Waiting for an automatic retry; rendered as Queued instead of a response spinner. */
+  queued?: boolean;
   /**
    * When this request was first marked as processing (client clock). Drives
    * the elapsed-time display and the stale `chat_subscribed` idle-ack guard.
@@ -251,6 +253,8 @@ export type SessionActivitySnapshot = {
   sessionId: string;
   statusText?: string | null;
   canInterrupt?: boolean;
+  /** True only while the server reports an AgentX retry waiting in its FIFO. */
+  queued?: boolean;
   startedAt?: number;
   /** True when the server lists the session for its background tasks alone, with no chat run. */
   background?: boolean;
@@ -1531,6 +1535,8 @@ export type SessionRowActions = {
   activeSessions: ReadonlySet<string>;
   /** The subset of `activeSessions` that only has background tasks running, which show the purple dot instead of the spinner. */
   backgroundSessionIds: ReadonlySet<string>;
+  /** Sessions waiting in the retry FIFO, shown with a Queued badge. */
+  queuedSessionIds?: ReadonlySet<string>;
   /** Sessions waiting on the user, which show the amber dot. */
   attentionSessionIds: ReadonlySet<string>;
   onRenameDraftChange: (draft: string) => void;

@@ -7,7 +7,7 @@ import { useUiPreferences, useSetUiPreference } from '@/shared/context/UiPrefere
 import { useSidebarController } from '@/modules/sidebar/hooks/useSidebarController';
 import { useTaskMaster, useTasksSettings } from '@/modules/task-master';
 import { usePaletteOps } from '@/modules/command-palette';
-import { useBackgroundSessionIdSet, useBusySessionIdSet } from '@/shared/context/SessionProtectionContext';
+import { useBackgroundSessionIdSet, useBusySessionIdSet, useQueuedSessionIdSet } from '@/shared/context/SessionProtectionContext';
 import type { LLMProvider, LoadingProgress, MCPServerStatus, Project, ProjectSession, SidebarProjectListProps } from '@/shared/types';
 import SidebarCollapsed from '@/modules/sidebar/SidebarCollapsed';
 import SidebarContent from '@/modules/sidebar/SidebarContent';
@@ -79,6 +79,7 @@ function Sidebar({
   // would re-render the whole tree on every provider status frame.
   const activeSessions = useBusySessionIdSet();
   const backgroundSessionIds = useBackgroundSessionIdSet();
+  const queuedSessionIds = useQueuedSessionIdSet();
 
   const {
     isSidebarCollapsed,
@@ -213,6 +214,7 @@ function Sidebar({
     backgroundSessionIds,
     attentionSessionIds,
     isProjectStarred,
+    queuedSessionIds,
     onRenameDraftChange: updateRenameDraft,
     onToggleProject: toggleProject,
     onProjectSelect: handleProjectSelect,
