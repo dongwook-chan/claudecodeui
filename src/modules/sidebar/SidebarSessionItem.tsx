@@ -19,6 +19,7 @@ type SidebarSessionItemProps = {
   session: SessionWithProvider;
   selectedSession: ProjectSession | null;
   isProcessing: boolean;
+  isQueued?: boolean;
   /** The session's turn has ended but the agents, workflows or commands it launched still run. */
   hasBackgroundWork: boolean;
   needsAttention: boolean;
@@ -52,6 +53,7 @@ function SidebarSessionItem({
   session,
   selectedSession,
   isProcessing,
+  isQueued = false,
   hasBackgroundWork,
   needsAttention,
   currentTime,
@@ -221,7 +223,9 @@ function SidebarSessionItem({
                 >
                   {sessionView.sessionName}
                 </div>
-                {isProcessing ? (
+                {isQueued ? (
+                  <span role="status" className="ml-auto shrink-0 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-400">Queued</span>
+                ) : isProcessing ? (
                   <span className="ml-auto flex-shrink-0">
                     <Tooltip content={t('tooltips.processingSessionIndicator', 'Processing session')} position="top">
                       <span className="flex h-5 w-5 items-center justify-center rounded-md text-muted-foreground">
@@ -473,7 +477,9 @@ function SidebarSessionItem({
                 >
                   {sessionView.sessionName}
                 </div>
-                {isProcessing ? (
+                {isQueued ? (
+                  <span role="status" className="ml-auto shrink-0 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-400">Queued</span>
+                ) : isProcessing ? (
                   <span
                     className={cn(
                       'ml-auto flex-shrink-0 transition-opacity duration-200',

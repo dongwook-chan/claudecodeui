@@ -1689,3 +1689,20 @@ export type ProviderNotificationTarget = {
   sessionId?: string | null;
   sessionName?: string | null;
 };
+//----------------- AGENTX QUEUED RECOVERY ------------
+
+/**
+ * Sanitized status of a Codex session waiting in AgentX's 429 FIFO. `sessionId`
+ * is the native Codex ID, not CloudCLI's app ID. Times are Unix milliseconds;
+ * position is one-based and attempts counts dispatched recoveries. No prompt,
+ * credential or adapter context is accepted into this transport contract.
+ */
+export type AgentxQueuedSession = {
+  sessionId: string;
+  queuedAt: number;
+  queuePosition: number;
+  nextRetryAt: number;
+  attempts: number;
+};
+
+// ---------------------------
