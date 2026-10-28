@@ -34,3 +34,9 @@ export { buildLookupMap, extractFirstValidJsonlData, findFilesRecursivelyModifie
 export type { IProviderSessionSynchronizer } from './interfaces.js';
 // Providers maps sanitized AgentX queue status to app-session activity.
 export type { AgentxQueuedSession } from './types.js';
+// Providers converts native Codex rollouts into transcript rows and tool details.
+export { parseFilesInputTag, toImageAttachments } from './image-attachments.js';
+export { prepareTranscriptMessages } from './message-unification.js';
+export { generateMessageId, truncateSubagentActivity } from './utils.js';
+export type { IProviderSessions } from './interfaces.js';
+export type { MemoryCitation, SubagentActivity, SubagentInfo } from './types.js';
