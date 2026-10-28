@@ -24,3 +24,9 @@ export type { AgentxQueuedSession } from './types.js';
 // Providers routes validate model, MCP and skill payloads through the shared contract.
 export type { CustomProviderModelEffort, CustomProviderModelInput, McpScope, McpTransport, ProviderSkillCreateFile, ProviderSkillCreateInput, UpsertProviderMcpServerInput } from './types.js';
 export { asyncHandler, createApiSuccessResponse } from './utils.js';
+// Providers converts native Codex rollouts into transcript rows and tool details.
+export { parseFilesInputTag, toImageAttachments } from './image-attachments.js';
+export { prepareTranscriptMessages } from './message-unification.js';
+export { generateMessageId, truncateSubagentActivity } from './utils.js';
+export type { IProviderSessions } from './interfaces.js';
+export type { MemoryCitation, SubagentActivity, SubagentInfo } from './types.js';
