@@ -1,13 +1,17 @@
 import { readdir, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { StringDecoder } from 'node:string_decoder';
 
 import crossSpawn from 'cross-spawn';
+
+import { AntigravitySessionsProvider } from './antigravity-sessions.provider.js';
 
 import { notifyRunFailed, notifyRunStopped } from '@/modules/notifications/index.js';
 import type { IProviderRuntime } from '@/shared/interfaces.js';
 import type {
   AnyRecord,
+  NormalizedMessage,
   ProviderRuntimeContext,
   ProviderRuntimeWriter,
 } from '@/shared/types.js';
@@ -17,6 +21,8 @@ import {
   createNormalizedMessage,
   flattenPromptForWindowsShell,
   resolveConfiguredCliExecutable,
+  readObjectRecord,
+  readOptionalString,
 } from '@/shared/utils.js';
 
 type AntigravityProcess = ReturnType<typeof crossSpawn> & {
@@ -42,6 +48,7 @@ type AntigravitySpawn = (
 type AntigravityRuntimeDependencies = {
   spawnProcess: AntigravitySpawn;
   readConversationDbFiles: () => Promise<ConversationDbFile[]>;
+  readHistory: (sessionId: string, providerSessionId: string) => Promise<NormalizedMessage[]>;
 };
 
 /** Reads a trimmed runtime option without accepting blank values. */
@@ -242,12 +249,26 @@ async function runAntigravity(
     args.push('--model', resolvedModel);
   }
   args.push(...resolveAntigravityPermissionArgs(options.permissionMode));
+  args.push('--output-format', 'stream-json');
   args.push('--print', flattenPromptForWindowsShell(command.trim()));
 
   const cliEnvironment = buildProviderCliEnv();
   if (process.env.AGY_CLI_PATH?.trim()) {
     // Keep native CLI overrides behind the supervisor rather than bypassing it.
     cliEnvironment.AGYX_REAL_AGY = resolveConfiguredCliExecutable(process.env.AGY_CLI_PATH, 'agy');
+  }
+
+  // Ignore already-persisted rows on resume. Live rows retain the same ids as
+  // the history endpoint so reconnect/reload reconciliation can remove echoes.
+  const emittedHistoryIds = new Set<string>();
+  if (providerSessionId) {
+    try {
+      for (const message of await dependencies.readHistory(fallbackSessionId, providerSessionId)) {
+        emittedHistoryIds.add(message.id);
+      }
+    } catch {
+      // History is supplementary; an unavailable transcript must not block a turn.
+    }
   }
 
   return new Promise((resolve, reject) => {
@@ -264,9 +285,84 @@ async function runAntigravity(
     let settled = false;
     let completeSent = false;
     let spawnError: Error | null = null;
+    let liveConversationId = providerSessionId;
+    let historyTimer: ReturnType<typeof setTimeout> | null = null;
+    let historyQueue = Promise.resolve();
+    let structuredOutput = false;
+    let pendingJson = '';
+    let resultResponse = '';
+    const emittedAssistantContents = new Set<string>();
+    const decoder = new StringDecoder('utf8');
     const stdoutFilter = createAntigravityStdoutFilter((text) => {
-      sendAntigravityText(writer, context, text, providerSessionId ?? fallbackSessionId);
+      sendAntigravityText(writer, context, text, liveConversationId ?? fallbackSessionId);
     });
+
+    const refreshHistory = async () => {
+      if (!liveConversationId || antigravityProcess.aborted || spawnError) return;
+      try {
+        const messages = await dependencies.readHistory(fallbackSessionId, liveConversationId);
+        if (antigravityProcess.aborted || spawnError) return;
+        for (const message of messages) {
+          if (emittedHistoryIds.has(message.id)) continue;
+          emittedHistoryIds.add(message.id);
+          if (message.kind === 'text' && message.role === 'assistant') {
+            emittedAssistantContents.add(message.content?.trim() ?? '');
+          }
+          writer.send(message);
+        }
+      } catch {
+        // AGY can announce a step before flushing its transcript; the next
+        // update (and final close) retries without turning a live run into an error.
+      }
+    };
+    const scheduleHistoryRefresh = () => {
+      if (historyTimer) return;
+      // Coalesce token/step bursts and let AGY flush the JSONL row first.
+      historyTimer = setTimeout(() => {
+        historyTimer = null;
+        historyQueue = historyQueue.then(refreshHistory);
+      }, 100);
+    };
+    const handleJsonLine = (line: string) => {
+      let event: AnyRecord | null;
+      try {
+        event = readObjectRecord(JSON.parse(line));
+      } catch {
+        return;
+      }
+      if (!event) return;
+      const step = readObjectRecord(event.step_update);
+      const result = readObjectRecord(event.result);
+      const conversationId = readOptionalString(event.conversation_id)
+        ?? readOptionalString(step?.conversation_id)
+        ?? readOptionalString(result?.conversation_id);
+      if (conversationId && conversationId !== liveConversationId) {
+        liveConversationId = conversationId;
+        announceAntigravityConversation(writer, conversationId);
+      }
+      if (event.event === 'init' || event.event === 'step_update' || event.event === 'result') {
+        structuredOutput = true;
+        if (event.event === 'result') resultResponse = readOptionalString(result?.response) ?? '';
+        // Completed steps are persisted rows. Token deltas may arrive much
+        // faster than disk changes, so do not reparse the transcript per token.
+        if (event.event !== 'step_update' || step?.state === 'DONE') scheduleHistoryRefresh();
+      }
+    };
+    const consumeStdout = (text: string) => {
+      // Older native fixtures/CLIs can still produce ordinary text. Never
+      // expose the native JSON envelope or its init metadata as assistant text.
+      if (!pendingJson && !text.trimStart().startsWith('{')) {
+        if (!structuredOutput) stdoutFilter.write(text);
+        return;
+      }
+      pendingJson += text;
+      let newline: number;
+      while ((newline = pendingJson.indexOf('\n')) >= 0) {
+        const line = pendingJson.slice(0, newline).trim();
+        pendingJson = pendingJson.slice(newline + 1);
+        if (line) handleJsonLine(line);
+      }
+    };
 
     const settle = (error?: Error) => {
       if (settled) {
@@ -286,8 +382,8 @@ async function runAntigravity(
     antigravityProcess.stdin?.end();
 
     antigravityProcess.stdout?.on('data', (data: Buffer | string) => {
-      const text = data.toString();
-      if (text) stdoutFilter.write(text);
+      const text = typeof data === 'string' ? data : decoder.write(data);
+      if (text) consumeStdout(text);
     });
 
     antigravityProcess.stderr?.on('data', (data: Buffer | string) => {
@@ -295,20 +391,29 @@ async function runAntigravity(
     });
 
     antigravityProcess.once('close', async (code) => {
+      consumeStdout(decoder.end());
+      if (pendingJson.trim()) handleJsonLine(pendingJson.trim());
+      if (historyTimer) clearTimeout(historyTimer);
       stdoutFilter.finish();
       activeProcesses.delete(processKey);
       if (spawnError) {
         return;
       }
 
-      const discoveredConversationId = providerSessionId
+      await historyQueue;
+      if (structuredOutput) await refreshHistory();
+      if (code === 0 && resultResponse && !emittedAssistantContents.has(resultResponse.trim()) && !antigravityProcess.aborted) {
+        sendAntigravityText(writer, context, resultResponse, liveConversationId ?? fallbackSessionId);
+      }
+
+      const discoveredConversationId = liveConversationId
         ?? await findNewAntigravityConversationId(
           previousConversationIds,
           startedAtMs,
           dependencies.readConversationDbFiles,
         );
       const outputSessionId = discoveredConversationId ?? fallbackSessionId;
-      if (!providerSessionId && discoveredConversationId) {
+      if (!liveConversationId && discoveredConversationId) {
         announceAntigravityConversation(writer, discoveredConversationId);
       }
 
@@ -366,6 +471,7 @@ async function runAntigravity(
 
     antigravityProcess.once('error', async (error) => {
       spawnError = error;
+      if (historyTimer) clearTimeout(historyTimer);
       activeProcesses.delete(processKey);
       if (antigravityProcess.aborted) {
         notifyTerminalState({ aborted: true });
@@ -425,6 +531,9 @@ export function createAntigravityRuntime(
   const dependencies: AntigravityRuntimeDependencies = {
     spawnProcess: crossSpawn as AntigravitySpawn,
     readConversationDbFiles: readAntigravityConversationDbFiles,
+    readHistory: async (sessionId, nativeId) => (
+      new AntigravitySessionsProvider().fetchHistory(sessionId, { providerSessionId: nativeId })
+    ).then((history) => history.messages),
     ...overrides,
   };
   const activeProcesses = new Map<string, AntigravityProcess>();
