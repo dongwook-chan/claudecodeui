@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { PassThrough } from 'node:stream';
 import test from 'node:test';
+import { setTimeout as delay } from 'node:timers/promises';
 
 import { AntigravitySessionsProvider } from '@/modules/providers/list/antigravity/antigravity-sessions.provider.js';
 import {
@@ -10,6 +14,7 @@ import {
 } from '@/modules/providers/list/antigravity/antigravity-runtime.provider.js';
 import type {
   AnyRecord,
+  NormalizedMessage,
   ProviderRuntimeContext,
   ProviderRuntimeWriter,
 } from '@/shared/types.js';
@@ -144,6 +149,7 @@ test('Antigravity streams stdout before exit and captures a new provider session
   assert.equal(messages.filter((message) => message.kind === 'complete').length, 1);
   assert.deepEqual(capturedArgs.slice(-2), ['--print', 'Hi']);
   assert.equal(capturedCommand, 'agyx');
+  assert.equal(capturedArgs[capturedArgs.indexOf('--output-format') + 1], 'stream-json');
   assert.deepEqual(capturedArgs.slice(0, 2), ['session', '--']);
   assert.equal(capturedArgs.includes('--conversation'), false);
   assert.equal(capturedCwd, '/workspace');
@@ -231,6 +237,7 @@ test('Antigravity supports a configured agyx path without changing the resumed t
     assert.deepEqual(capturedArgs, [
       'session', '--', '--conversation', 'native-resume',
       '--model', 'gemini-3.8-flash-high', '--mode', 'plan',
+      '--output-format', 'stream-json',
       '--print', 'continue\nCheck existing files first.',
     ]);
   } finally {
@@ -350,4 +357,156 @@ test('Antigravity emits one terminal lifecycle when the CLI cannot spawn', async
 
   assert.equal(messages.filter((message) => message.kind === 'error').length, 1);
   assert.equal(messages.filter((message) => message.kind === 'complete').length, 1);
+});
+
+
+test('Antigravity binds split native init immediately and delivers transcript rows before exit', async () => {
+  const child = createFakeProcess();
+  const rows: NormalizedMessage[] = [{
+    id: 'app-live-0', sessionId: 'app-live', provider: 'antigravity',
+    timestamp: new Date().toISOString(), kind: 'text', role: 'user', content: 'Hi',
+  }];
+  let reads = 0;
+  let started: (() => void) | undefined;
+  const spawned = new Promise<void>((resolve) => { started = resolve; });
+  const runtime = createAntigravityRuntime({
+    spawnProcess: () => { started?.(); return child as never; },
+    // Simulate an unrelated concurrent AGY conversation; init is authoritative.
+    readConversationDbFiles: async () => [{ id: 'unrelated-native', mtimeMs: Date.now() }],
+    readHistory: async (appId, nativeId) => {
+      reads++;
+      assert.equal(appId, 'app-live');
+      assert.equal(nativeId, 'native-live');
+      return [...rows];
+    },
+  });
+  const { writer, messages, getProviderSessionId } = createWriter();
+  const run = runtime.run('Hi', { sessionId: 'app-live' }, writer, createRuntimeContext());
+  await spawned;
+  child.stdout.write('{"event":"init","conversation_');
+  assert.equal(getProviderSessionId(), null);
+  child.stdout.write('id":"native-live","init":{"cwd":"/workspace","tools":["read_file"]}}\n');
+  assert.equal(getProviderSessionId(), 'native-live');
+  child.stdout.write('{"event":"step_update","step_update":{"conversation_id":"native-live","step_index":0,"state":"DONE","step_type":"user_input"}}\n');
+  child.stdout.write('{bad-json}\n');
+  await delay(140);
+  assert.equal(reads, 1, 'init and step bursts are coalesced');
+  assert.equal(messages.some((message) => message.content === 'Hi'), true);
+  assert.equal(messages.some((message) => message.kind === 'complete'), false);
+
+  rows.push({ ...rows[0], id: 'app-live-2', kind: 'thinking', role: 'assistant', content: 'Checking files' });
+  child.stdout.write('{"event":"step_update","step_update":{"conversation_id":"native-live","step_index":2,"state":"DONE"}}\n');
+  await delay(140);
+  assert.equal(messages.some((message) => message.content === 'Checking files'), true);
+  assert.equal(messages.filter((message) => message.content === 'Hi').length, 1);
+  child.emit('close', 0, null);
+  await run;
+  assert.equal(messages.filter((message) => message.kind === 'session_created').length, 1);
+  assert.equal(messages.filter((message) => message.kind === 'complete').length, 1);
+  assert.equal(messages.some((message) => String(message.content).includes('"event"')), false);
+});
+
+test('Antigravity resumes without replaying history and flushes final JSON without a newline', async () => {
+  const child = createFakeProcess();
+  const oldRow: NormalizedMessage = {
+    id: 'app-resume-0', sessionId: 'app-resume', provider: 'antigravity',
+    timestamp: new Date().toISOString(), kind: 'text', role: 'assistant', content: 'Earlier reply',
+  };
+  let reads = 0;
+  const runtime = createAntigravityRuntime({
+    spawnProcess: () => {
+      queueMicrotask(() => {
+        const wire = Buffer.from('{"event":"init","conversation_id":"native-resume","init":{"cwd":"한글"}}\n');
+        const split = wire.indexOf(Buffer.from('한')) + 1;
+        child.stdout.write(wire.subarray(0, split));
+        child.stdout.write(wire.subarray(split));
+        child.stdout.write('{"event":"result","result":{"conversation_id":"native-resume","status":"SUCCESS","response":"New reply"}}');
+        child.emit('close', 0, null);
+      });
+      return child as never;
+    },
+    readConversationDbFiles: async () => [],
+    readHistory: async () => {
+      reads++;
+      return reads === 1 ? [oldRow] : [oldRow, { ...oldRow, id: 'app-resume-3', content: 'New reply' }];
+    },
+  });
+  const { writer, messages } = createWriter();
+  await runtime.run('Continue', { sessionId: 'app-resume' }, writer,
+    createRuntimeContext({ resolveProviderSessionId: () => 'native-resume' }));
+  assert.equal(messages.some((message) => message.content === 'Earlier reply'), false);
+  assert.equal(messages.filter((message) => message.content === 'New reply').length, 1);
+  assert.equal(messages.some((message) => message.kind === 'stream_delta'), false);
+  assert.equal(messages.filter((message) => message.kind === 'complete').length, 1);
+});
+
+test('Antigravity native result is not terminal until the managed launcher exits, and Stop cancels pending hydration', async () => {
+  const child = createFakeProcess();
+  let started: (() => void) | undefined;
+  const spawned = new Promise<void>((resolve) => { started = resolve; });
+  let reads = 0;
+  const runtime = createAntigravityRuntime({
+    spawnProcess: () => { started?.(); return child as never; },
+    readConversationDbFiles: async () => [],
+    readHistory: async () => { reads++; return []; },
+  });
+  const { writer, messages } = createWriter();
+  const run = runtime.run('Hi', { sessionId: 'app-stop' }, writer, createRuntimeContext());
+  await spawned;
+  child.stdout.write('{"event":"init","conversation_id":"native-stop"}\n');
+  child.stdout.write('{"event":"result","result":{"conversation_id":"native-stop","status":"ERROR","error":"RESOURCE_EXHAUSTED"}}\n');
+  assert.equal(messages.some((message) => message.kind === 'complete'), false);
+  assert.equal(runtime.abort('app-stop'), true);
+  await run;
+  await delay(140);
+  assert.equal(reads, 0);
+  assert.equal(messages.some((message) => message.kind === 'complete'), false);
+});
+
+
+test('Antigravity native init hydrates the real transcript while the process is still running', { concurrency: false }, async () => {
+  const homeDir = await mkdtemp(path.join(os.tmpdir(), 'agy-live-history-'));
+  const previousHome = process.env.HOME;
+  const child = createFakeProcess();
+  const nativeId = 'native-live-filesystem';
+  const logsDir = path.join(homeDir, '.gemini', 'antigravity-cli', 'brain', nativeId, '.system_generated', 'logs');
+  let receivedUser: (() => void) | undefined;
+  const userVisible = new Promise<void>((resolve) => { receivedUser = resolve; });
+  try {
+    process.env.HOME = homeDir;
+    await mkdir(logsDir, { recursive: true });
+    await writeFile(path.join(logsDir, 'transcript.jsonl'), JSON.stringify({
+      step_index: 0, source: 'USER_EXPLICIT', type: 'USER_INPUT', status: 'DONE',
+      created_at: '2026-10-28T00:28:20Z', content: '<USER_REQUEST>Live user prompt</USER_REQUEST>',
+    }) + '\n');
+    const runtime = createAntigravityRuntime({
+      spawnProcess: () => {
+        queueMicrotask(() => child.stdout.write(JSON.stringify({
+          event: 'init', conversation_id: nativeId, init: { cwd: '/workspace' },
+        }) + '\n'));
+        return child as never;
+      },
+      readConversationDbFiles: async () => [],
+    });
+    const { writer, messages, getProviderSessionId } = createWriter((message) => {
+      if (message.content === 'Live user prompt') receivedUser?.();
+    });
+    const run = runtime.run('Live user prompt', { sessionId: 'app-filesystem' }, writer, createRuntimeContext());
+    try {
+      await Promise.race([userVisible, delay(2000).then(() => { throw new Error('Live transcript stayed empty'); })]);
+      assert.equal(getProviderSessionId(), nativeId);
+      assert.equal(messages.some((message) => message.kind === 'complete'), false);
+      assert.equal(messages.find((message) => message.content === 'Live user prompt')?.id, 'app-filesystem-0');
+    } finally {
+      child.stdout.write(JSON.stringify({ event: 'result', result: { conversation_id: nativeId, response: 'Final reply' } }));
+      child.emit('close', 0, null);
+      await run;
+    }
+    assert.equal(messages.filter((message) => message.content === 'Final reply').length, 1);
+    assert.equal(messages.filter((message) => message.kind === 'complete').length, 1);
+  } finally {
+    if (previousHome === undefined) delete process.env.HOME;
+    else process.env.HOME = previousHome;
+    await rm(homeDir, { recursive: true, force: true });
+  }
 });
