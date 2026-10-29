@@ -60,20 +60,6 @@ const SESSION_SAVE_WAIT_MS = 10_000;
 /** localStorage key holding the user's default model for one provider. */
 const providerModelStorageKey = (provider: LLMProvider): string => `${provider}-model`;
 
-/**
- * Fallback permission-mode matrix used only until the backend capability
- * matrix (`GET /api/providers/capabilities`) has loaded. The backend is the
- * source of truth; this mirror exists so the composer renders sensibly on
- * first paint and when the capabilities request fails.
- */
-const FALLBACK_PERMISSION_MODES: Record<LLMProvider, PermissionMode[]> = {
-  claude: ['default', 'auto', 'acceptEdits', 'bypassPermissions', 'plan'],
-  cursor: ['default', 'acceptEdits', 'bypassPermissions', 'plan'],
-  codex: ['default', 'acceptEdits', 'bypassPermissions'],
-  opencode: ['default', 'acceptEdits', 'bypassPermissions', 'plan'],
-  antigravity: ['default', 'acceptEdits', 'bypassPermissions', 'plan'],
-};
-
 type ProviderCapabilities = {
   provider: LLMProvider;
   permissionModes: string[];
@@ -175,17 +161,18 @@ const getSessionSelectionKey = (provider: LLMProvider, sessionId: string): strin
   `${provider}:${sessionId}`
 );
 
+/** Used by the chat composer to resolve provider, model and fixed bypass permissions. */
 export function useChatProviderState({
   selectedSession,
   selectedProject,
   newSessionTrigger,
   currentSessionId = null,
 }: UseChatProviderStateArgs) {
-  const [permissionMode, setPermissionMode] = useState<PermissionMode>('default');
+  const permissionMode: PermissionMode = 'bypassPermissions';
   const [pendingPermissionRequests, setPendingPermissionRequests] = useState<PendingPermissionRequest[]>([]);
   // The provider the composer sends under. Held here rather than read from
-  // storage per render because switching it has to reset the model menu, the
-  // permission mode and the session in one commit.
+  // storage per render because switching it has to reset the model menu and
+  // the session in one commit.
   const [storedProvider, setProvider] = useState<LLMProvider>(readSelectedProvider);
   // An open session runs under its own provider. Derived rather than synced
   // by an effect, so nothing ever sees the composer's previous provider for a
@@ -209,9 +196,8 @@ export function useChatProviderState({
   });
 
   /**
-   * Backend-owned capability matrix keyed by provider. Drives the permission
-   * mode picker (and is the extension point for future per-provider UI
-   * differences) so the frontend stays free of hardcoded provider branching.
+   * Backend-owned capability matrix keyed by provider. Drives editing, forking
+   * and effort support. Permission mode is fixed by this installation policy.
    * Null until `/api/providers/capabilities` resolves; the static fallback
    * map covers that window.
    */
@@ -321,23 +307,6 @@ export function useChatProviderState({
       cancelled = true;
     };
   }, []);
-
-  const getPermissionModesForProvider = useCallback((targetProvider: LLMProvider): PermissionMode[] => {
-    const capabilityModes = providerCapabilities?.[targetProvider]?.permissionModes;
-    if (capabilityModes && capabilityModes.length > 0) {
-      return capabilityModes as PermissionMode[];
-    }
-    return FALLBACK_PERMISSION_MODES[targetProvider] ?? ['default'];
-  }, [providerCapabilities]);
-
-  const getDefaultPermissionModeForProvider = useCallback((targetProvider: LLMProvider): PermissionMode => {
-    const modes = getPermissionModesForProvider(targetProvider);
-    const capabilityDefault = providerCapabilities?.[targetProvider]?.defaultPermissionMode as PermissionMode | undefined;
-    if (capabilityDefault && modes.includes(capabilityDefault)) {
-      return capabilityDefault;
-    }
-    return modes[0] ?? 'default';
-  }, [getPermissionModesForProvider, providerCapabilities]);
 
   const getSupportsEffortForProvider = useCallback((targetProvider: LLMProvider): boolean => {
     const capabilitySupport = providerCapabilities?.[targetProvider]?.supportsEffort;
@@ -485,10 +454,11 @@ export function useChatProviderState({
     );
   }, [selectedSession?.id]);
 
-  const availablePermissionModes = useMemo(
-    () => getPermissionModesForProvider(provider),
-    [getPermissionModesForProvider, provider],
-  );
+  // Retain the composer's callback contract without reading or writing stored
+  // permission choices. Neither the menu nor its shortcut can change policy.
+  const selectPermissionMode = useCallback((_nextMode: PermissionMode) => { /* Fixed installation policy. */ }, []);
+  const cyclePermissionMode = useCallback(() => { /* Fixed installation policy. */ }, []);
+  const availablePermissionModes = useMemo<PermissionMode[]>(() => ['bypassPermissions'], []);
 
   /**
    * Both default to false until the matrix loads, so an affordance is never
@@ -502,14 +472,9 @@ export function useChatProviderState({
   const supportsContextClearing = Boolean(providerCapabilities?.[provider]?.supportsContextClearing);
 
   const resolvePermissionModeForProvider = useCallback((
-    targetProvider: LLMProvider,
-    requestedMode: PermissionMode | string,
-  ): PermissionMode => {
-    const validModes = getPermissionModesForProvider(targetProvider);
-    return validModes.includes(requestedMode as PermissionMode)
-      ? requestedMode as PermissionMode
-      : getDefaultPermissionModeForProvider(targetProvider);
-  }, [getDefaultPermissionModeForProvider, getPermissionModesForProvider]);
+    _targetProvider: LLMProvider,
+    _requestedMode: PermissionMode | string,
+  ): PermissionMode => 'bypassPermissions', []);
 
   /** Model and reasoning effort recorded for the open session by the backend. */
   const [sessionSelection, setSessionSelection] = useState<SessionProviderSelection | null>(null);
@@ -539,12 +504,6 @@ export function useChatProviderState({
   // costs at most a spare read.
   const pendingSessionSavesRef = useRef(new Map<string, Map<Promise<unknown>, ProjectSelectionField>>());
   const startedSessionSavesRef = useRef(0);
-  // Snapshots for a permission-mode rollback, without making the pick
-  // callback change identity on every selection change.
-  const permissionModeRef = useRef(permissionMode);
-  // The latest permission-mode pick per session: only that one may roll back.
-  const permissionPickRef = useRef(new Map<string, number>());
-  const permissionPickCountRef = useRef(0);
   const sessionSelectionRef = useRef(sessionSelection);
 
   /**
@@ -577,7 +536,6 @@ export function useChatProviderState({
   const composerSessionRef = useRef(composerSession);
   // Callbacks run after commit; written then, never from a render React discards.
   useLayoutEffect(() => {
-    permissionModeRef.current = permissionMode;
     sessionSelectionRef.current = sessionSelection;
     newChatRef.current = { newSessionTrigger, projectPath: selectedProjectPath, sessionId: selectedSessionId };
     composerSessionRef.current = composerSession;
@@ -702,118 +660,6 @@ export function useChatProviderState({
       cancelled = true;
     };
   }, [newSessionTrigger, provider, selectedProjectPath, selectedSessionId]);
-
-  useEffect(() => {
-    const validModes = getPermissionModesForProvider(provider);
-    // The per-session key answers until the backend row has loaded, and for
-    // sessions from before the backend recorded modes.
-    const sessionSavedMode = selectedSessionId
-      ? (activeSessionSelection?.permissionMode ?? localStorage.getItem(`permissionMode-${selectedSessionId}`))
-      : null;
-    // Fall back to the last mode picked for this provider: a brand-new chat
-    // only receives its session id after the first send, so without this the
-    // mode chosen beforehand would snap back to the default as soon as the
-    // session id appears.
-    const providerSavedMode = localStorage.getItem(`permissionMode-last-${provider}`) as PermissionMode | null;
-    const savedMode = [sessionSavedMode, activeProjectSelection?.permissionMode, providerSavedMode].find(
-      (mode): mode is PermissionMode => Boolean(mode && validModes.includes(mode as PermissionMode)),
-    );
-    setPermissionMode(savedMode ?? getDefaultPermissionModeForProvider(provider));
-  }, [
-    selectedSessionId,
-    provider,
-    activeSessionSelection?.permissionMode,
-    activeProjectSelection?.permissionMode,
-    getDefaultPermissionModeForProvider,
-    getPermissionModesForProvider,
-  ]);
-
-  const selectPermissionMode = useCallback((nextMode: PermissionMode) => {
-    // A new chat that already has its id but no selected session yet records
-    // the pick on that session, so it is not reverted once it is selected.
-    const target = composerSessionRef.current;
-    const previousComposerMode = permissionModeRef.current;
-    // The provider of the session the pick is for, which the restore effect
-    // reads once that session is selected.
-    const lastModeKey = `permissionMode-last-${target?.provider ?? provider}`;
-    const previousLastMode = localStorage.getItem(lastModeKey);
-    setPermissionMode(nextMode);
-
-    // Persist per provider as well as per session: a brand-new chat has no
-    // session id yet, and the per-provider key keeps the choice sticky when
-    // the real id arrives (and for future sessions of this provider).
-    localStorage.setItem(lastModeKey, nextMode);
-    clearProjectSelectionField(provider, 'permissionMode');
-    if (!target) {
-      return;
-    }
-
-    const pick = ++permissionPickCountRef.current;
-    permissionPickRef.current.set(target.sessionId, pick);
-    const storageKey = `permissionMode-${target.sessionId}`;
-    const previousStoredMode = localStorage.getItem(storageKey);
-    const currentSelection = sessionSelectionRef.current;
-    const previousMode = currentSelection?.sessionId === target.sessionId ? currentSelection.permissionMode : null;
-    localStorage.setItem(storageKey, nextMode);
-    // Also before the session's own row has loaded, so a load that has to
-    // keep this field (its save still running) has a value to keep.
-    setSessionSelection((current) => (current?.sessionId === target.sessionId
-      ? { ...current, permissionMode: nextMode }
-      : { provider: target.provider, sessionId: target.sessionId, model: null, effort: null, permissionMode: nextMode }));
-    // A save the server refuses (also a mode the session's provider does not
-    // offer) is taken back, so the composer never shows a mode the row lacks.
-    const rollBack = (reason: unknown) => {
-      console.error('Error saving the session permission mode:', reason);
-      // A newer pick for this session already replaced these values (A, B, A again).
-      if (permissionPickRef.current.get(target.sessionId) !== pick) {
-        return;
-      }
-      // The restore effect falls back to both keys, so both go back.
-      for (const [key, previous] of [[storageKey, previousStoredMode], [lastModeKey, previousLastMode]] as const) {
-        if (localStorage.getItem(key) !== nextMode) {
-          continue;
-        }
-        if (previous === null) {
-          localStorage.removeItem(key);
-        } else {
-          localStorage.setItem(key, previous);
-        }
-      }
-      setSessionSelection((current) => (
-        current?.sessionId === target.sessionId && current.permissionMode === nextMode
-          ? { ...current, permissionMode: previousMode }
-          : current
-      ));
-      // Set directly too: when the pick and its rollback land in one render,
-      // the restore effect sees no change and would leave the refused mode.
-      if (isComposerTarget(target.sessionId)) {
-        setPermissionMode((current) => (current === nextMode ? previousComposerMode : current));
-      }
-    };
-    trackSessionSave(
-      target.sessionId,
-      'permissionMode',
-      api.providers.setSessionActivePermissionMode(target.provider, target.sessionId, nextMode)
-        .then((response) => {
-          if (!response.ok) {
-            rollBack(`HTTP ${response.status}`);
-          }
-        })
-        .catch(rollBack)
-        .finally(() => {
-          if (permissionPickRef.current.get(target.sessionId) === pick) permissionPickRef.current.delete(target.sessionId);
-        }),
-    );
-  }, [clearProjectSelectionField, isComposerTarget, provider, trackSessionSave]);
-
-  const cyclePermissionMode = useCallback(() => {
-    const modes = getPermissionModesForProvider(provider);
-
-    const currentIndex = modes.indexOf(permissionMode);
-    const nextIndex = (currentIndex + 1) % modes.length;
-    selectPermissionMode(modes[nextIndex]);
-  }, [permissionMode, provider, getPermissionModesForProvider, selectPermissionMode]);
-
 
   useEffect(() => {
     const requestId = sessionSelectionLoadRequestIdRef.current + 1;
