@@ -278,7 +278,7 @@ test('a due message is claimed once, so overlapping passes cannot double-send it
   });
 });
 
-test('the composer settings it was scheduled with travel with it', async () => {
+test('scheduled messages retain the model and apply the installation bypass policy', async () => {
   await withIsolatedDatabase(async (userId) => {
     scheduledMessagesService.schedule({
       userId,
@@ -292,7 +292,9 @@ test('the composer settings it was scheduled with travel with it', async () => {
     await dispatchDueScheduledMessages(createRuntime(runs));
 
     assert.equal(runs[0].options.model, 'claude-opus-5');
-    assert.equal(runs[0].options.permissionMode, 'plan');
+    assert.equal(runs[0].options.permissionMode, 'bypassPermissions');
+    assert.equal(runs[0].options.skipPermissions, true);
+    assert.deepEqual(runs[0].options.toolsSettings, { skipPermissions: true });
   });
 });
 
