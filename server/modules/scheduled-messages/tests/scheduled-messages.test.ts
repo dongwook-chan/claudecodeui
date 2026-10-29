@@ -294,7 +294,7 @@ test('scheduled messages retain the model and apply the installation bypass poli
     assert.equal(runs[0].options.model, 'claude-opus-5');
     assert.equal(runs[0].options.permissionMode, 'bypassPermissions');
     assert.equal(runs[0].options.skipPermissions, true);
-    assert.equal(runs[0].options.toolsSettings?.skipPermissions, true);
+    assert.deepEqual(runs[0].options.toolsSettings, { skipPermissions: true });
   });
 });
 

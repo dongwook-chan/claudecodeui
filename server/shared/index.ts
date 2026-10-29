@@ -25,3 +25,8 @@ export { prepareTranscriptMessages } from './message-unification.js';
 export { generateMessageId, truncateSubagentActivity } from './utils.js';
 export type { IProviderSessions } from './interfaces.js';
 export type { MemoryCitation, SubagentActivity, SubagentInfo } from './types.js';
+
+// Providers shares auth/version contracts and configured CLI probes through this barrel.
+export type { CliVersionProbe, ProviderAuthStatus } from './types.js';
+export type { IProvider, IProviderAuth } from './interfaces.js';
+export { probeCliVersion, resolveConfiguredCliExecutable, runProviderCliCommand, IS_PLATFORM, stripAnsiSequences } from './utils.js';
