@@ -161,7 +161,7 @@ test('editing the first prompt starts the conversation over', async () => {
       anchorId: 'e-u1',
       content: 'a better first prompt',
     }));
-    await settle();
+    for (let attempt = 0; runs.length === 0 && attempt < 100; attempt += 1) await settle();
 
     assert.equal(runs.length, 1);
     assert.equal(runs[0].options.resumeAnchorId, undefined);
@@ -177,7 +177,8 @@ test('every subscribed client is told to drop the superseded turns', async () =>
       anchorId: 'e-u2',
       content: 'replacement',
     }));
-    await settle();
+    // Cold provider imports can outlive one timer tick; await the observable event.
+    for (let attempt = 0; !socket.frames.some((frame) => frame.kind === 'history_truncated') && attempt < 100; attempt += 1) await settle();
 
     const truncation = socket.frames.find((frame) => frame.kind === 'history_truncated');
     assert.ok(truncation, 'a history_truncated frame is emitted');
