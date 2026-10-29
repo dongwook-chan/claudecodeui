@@ -139,11 +139,14 @@ test('an edit resumes through the turn before the one being replaced', async () 
       sessionId: SESSION_ID,
       anchorId: 'e-u2',
       content: 'a better second prompt',
+      options: { permissionMode: 'default', skipPermissions: false },
     }));
-    await settle();
+    for (let attempt = 0; runs.length === 0 && attempt < 100; attempt += 1) await settle();
 
     assert.equal(runs.length, 1);
     assert.equal(runs[0].command, 'a better second prompt');
+    assert.equal(runs[0].options.permissionMode, 'bypassPermissions');
+    assert.equal(runs[0].options.skipPermissions, true);
     // Inclusive of the row it names, so this is the last turn KEPT.
     assert.equal(runs[0].options.resumeAnchorId, 'e-a1');
     assert.equal(runs[0].options.resumeFromScratch, false);
@@ -286,6 +289,7 @@ test('a provider that has to branch to rewind is rewound before the run, not dur
         sessionId: SESSION_ID,
         anchorId: 'turn-b',
         content: 'a better second prompt',
+        options: { permissionMode: 'default', skipPermissions: false },
       }));
       await settle();
     } finally {
@@ -296,6 +300,8 @@ test('a provider that has to branch to rewind is rewound before the run, not dur
     assert.deepEqual(rewindCalls, [{ sessionId: SESSION_ID, keepThroughId: 'turn-a' }]);
     assert.equal(runs.length, 1);
     assert.equal(runs[0].command, 'a better second prompt');
+    assert.equal(runs[0].options.permissionMode, 'bypassPermissions');
+    assert.equal(runs[0].options.skipPermissions, true);
     assert.equal(runs[0].options.resumeAnchorId, undefined);
     assert.equal(runs[0].options.resumeFromScratch, undefined);
 
