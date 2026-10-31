@@ -15,7 +15,7 @@ import { PaperclipIcon, MessageSquareIcon, XIcon, Loader2, PencilIcon } from 'lu
 import { useVoiceInput } from '@/modules/chat/hooks/useVoiceInput';
 import { useVoiceAvailable } from '@/modules/chat/hooks/useVoiceAvailable';
 import { MCP_ELICITATION_TOOL_NAME } from '@/shared/constants';
-import type { BackgroundSendChoice, BackgroundSendPrompt, PendingSteer, QueuedDraft, ScheduledMessage, SlashCommand,SessionActivity,PendingPermissionRequest,PermissionMode,ProviderModelOption } from '@/shared/types';
+import type { BackgroundSendChoice, BackgroundSendPrompt, PendingSteer, QueuedDraft, ScheduledMessage, SlashCommand,SessionActivity,PendingPermissionRequest,ProviderModelOption } from '@/shared/types';
 import {
   PromptInput,
   PromptInputHeader,
@@ -38,7 +38,6 @@ import BackgroundSendDialog from '@/modules/chat/composer/BackgroundSendDialog';
 import { ScheduleMessagePopover } from '@/modules/chat/composer/ScheduleMessagePopover';
 import { ScheduledMessageList } from '@/modules/chat/composer/ScheduledMessageList';
 import ComposerModelMenu from '@/modules/chat/composer/ComposerModelMenu';
-import ComposerPermissionMenu from '@/modules/chat/composer/ComposerPermissionMenu';
 import ComposerSendMenu from '@/modules/chat/composer/ComposerSendMenu';
 
 type MentionableFile = {
@@ -62,9 +61,6 @@ type ChatComposerProps = {
   onAbortSession: () => void;
   /** Whether the viewed session can currently be interrupted; threaded to the send menu's Stop row, which otherwise looks actionable while `onAbortSession` already no-ops. Defaults to true so existing callers and tests, which never had a non-interruptible turn, keep working. */
   canAbortSession?: boolean;
-  permissionMode: PermissionMode;
-  availablePermissionModes: PermissionMode[];
-  onSelectPermissionMode: (mode: PermissionMode) => void;
   providerLabel: string;
   effort: string;
   availableEffortOptions: NonNullable<ProviderModelOption['effort']>['values'];
@@ -138,7 +134,7 @@ type ChatComposerProps = {
 /**
  * Rendered by chat's ChatInterface as the whole input area: textarea, pending
  * attachments, queued message, permission banner, voice input and the
- * model/permission popovers that drive the next turn.
+ * model popover that configures the next turn.
  */
 export default function ChatComposer({
   pendingPermissionRequests,
@@ -148,9 +144,6 @@ export default function ChatComposer({
   isLoading,
   onAbortSession,
   canAbortSession = true,
-  permissionMode,
-  availablePermissionModes,
-  onSelectPermissionMode,
   providerLabel,
   effort,
   availableEffortOptions,
@@ -524,13 +517,6 @@ export default function ChatComposer({
               modelOptions={availableModelOptions}
               onSelectModel={onSelectModel}
               modelsLoading={modelsLoading}
-            />
-
-            <ComposerPermissionMenu
-              permissionMode={permissionMode}
-              permissionModes={availablePermissionModes}
-              onSelectPermissionMode={onSelectPermissionMode}
-              providerLabel={providerLabel}
             />
 
             {(isLoading || activity?.background) && hasAnyInput && !isRecording && !isTranscribing ? (
