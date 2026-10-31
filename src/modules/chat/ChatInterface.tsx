@@ -114,8 +114,6 @@ function ChatInterface({
     permissionMode,
     pendingPermissionRequests,
     setPendingPermissionRequests,
-    availablePermissionModes,
-    selectPermissionMode,
     cyclePermissionMode,
     providerModelCatalog,
     providerModelsLoading,
@@ -582,9 +580,6 @@ function ChatInterface({
           isLoading={isProcessing}
           onAbortSession={handleAbortSession}
           canAbortSession={canAbortSession}
-          permissionMode={permissionMode}
-          availablePermissionModes={availablePermissionModes}
-          onSelectPermissionMode={selectPermissionMode}
           providerLabel={selectedProviderLabel}
           effort={currentProviderEffort}
           availableEffortOptions={currentProviderEffortOptions}
