@@ -14,7 +14,7 @@ import { PaperclipIcon, MessageSquareIcon, XIcon, Loader2, ArrowUpIcon, PencilIc
 
 import { useVoiceInput } from '@/modules/chat/hooks/useVoiceInput';
 import { useVoiceAvailable } from '@/modules/chat/hooks/useVoiceAvailable';
-import type { BackgroundSendChoice, BackgroundSendPrompt, QueuedDraft, ScheduledMessage, SlashCommand,SessionActivity,PendingPermissionRequest,PermissionMode,ProviderModelOption } from '@/shared/types';
+import type { BackgroundSendChoice, BackgroundSendPrompt, QueuedDraft, ScheduledMessage, SlashCommand,SessionActivity,PendingPermissionRequest,ProviderModelOption } from '@/shared/types';
 import {
   PromptInput,
   PromptInputHeader,
@@ -36,7 +36,6 @@ import BackgroundSendDialog from '@/modules/chat/composer/BackgroundSendDialog';
 import { ScheduleMessagePopover } from '@/modules/chat/composer/ScheduleMessagePopover';
 import { ScheduledMessageList } from '@/modules/chat/composer/ScheduledMessageList';
 import ComposerModelMenu from '@/modules/chat/composer/ComposerModelMenu';
-import ComposerPermissionMenu from '@/modules/chat/composer/ComposerPermissionMenu';
 
 type MentionableFile = {
   name: string;
@@ -53,10 +52,6 @@ type ChatComposerProps = {
   activity: SessionActivity | null;
   isLoading: boolean;
   onAbortSession: () => void;
-  permissionMode: PermissionMode;
-  availablePermissionModes: PermissionMode[];
-  onSelectPermissionMode: (mode: PermissionMode) => void;
-  providerLabel: string;
   effort: string;
   availableEffortOptions: NonNullable<ProviderModelOption['effort']>['values'];
   onSelectEffort: (effort: string) => void;
@@ -122,7 +117,7 @@ type ChatComposerProps = {
 /**
  * Rendered by chat's ChatInterface as the whole input area: textarea, pending
  * attachments, queued message, permission banner, voice input and the
- * model/permission popovers that drive the next turn.
+ * model popover that configures the next turn.
  */
 export default function ChatComposer({
   pendingPermissionRequests,
@@ -131,10 +126,6 @@ export default function ChatComposer({
   activity,
   isLoading,
   onAbortSession,
-  permissionMode,
-  availablePermissionModes,
-  onSelectPermissionMode,
-  providerLabel,
   effort,
   availableEffortOptions,
   onSelectEffort,
@@ -504,13 +495,6 @@ export default function ChatComposer({
               modelOptions={availableModelOptions}
               onSelectModel={onSelectModel}
               modelsLoading={modelsLoading}
-            />
-
-            <ComposerPermissionMenu
-              permissionMode={permissionMode}
-              permissionModes={availablePermissionModes}
-              onSelectPermissionMode={onSelectPermissionMode}
-              providerLabel={providerLabel}
             />
 
             <PromptInputSubmit
