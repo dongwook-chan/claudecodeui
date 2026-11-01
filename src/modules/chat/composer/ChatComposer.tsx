@@ -52,6 +52,7 @@ type ChatComposerProps = {
   activity: SessionActivity | null;
   isLoading: boolean;
   onAbortSession: () => void;
+  providerLabel: string;
   effort: string;
   availableEffortOptions: NonNullable<ProviderModelOption['effort']>['values'];
   onSelectEffort: (effort: string) => void;
@@ -126,6 +127,7 @@ export default function ChatComposer({
   activity,
   isLoading,
   onAbortSession,
+  providerLabel,
   effort,
   availableEffortOptions,
   onSelectEffort,

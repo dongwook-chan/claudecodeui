@@ -17,7 +17,7 @@ test.each([false, true])('composer omits the permission control while retaining 
   const props: ComponentProps<typeof ChatComposer> = {
     pendingPermissionRequests: [], handlePermissionDecision: noop,
     handleGrantToolPermission: () => ({ success: true }),
-    activity: null, isLoading, onAbortSession,
+    activity: null, isLoading, onAbortSession, providerLabel: 'Codex',
     effort: 'high', availableEffortOptions: [{ value: 'high' }], onSelectEffort: noop,
     model: 'test-model', availableModelOptions: [{ value: 'test-model', label: 'Test model' }],
     onSelectModel: noop, modelsLoading: false, tokenBudget: null, onShowTokenUsage: noop,
