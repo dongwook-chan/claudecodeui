@@ -63,7 +63,12 @@ const installMatchMedia = () => {
 };
 
 /** Builds a synthetic textarea Enter keydown, tracking whether it was cancelled. */
-const enterEvent = (overrides: { shiftKey?: boolean; ctrlKey?: boolean } = {}) => {
+const enterEvent = (overrides: {
+  shiftKey?: boolean;
+  ctrlKey?: boolean;
+  metaKey?: boolean;
+  nativeEvent?: { isComposing: boolean };
+} = {}) => {
   let defaultPrevented = false;
   return {
     event: {
@@ -114,9 +119,10 @@ const renderComposer = (sendMessage: ReturnType<typeof vi.fn>, sendByCtrlEnter?:
 const typeAndPress = async (
   view: ReturnType<typeof renderComposer>,
   key: ReturnType<typeof enterEvent>,
+  text = 'hello world',
 ) => {
   await act(async () => {
-    view.result.current.setInput('hello world');
+    view.result.current.setInput(text);
   });
   await act(async () => {
     view.result.current.handleKeyDown(key.event);
@@ -133,6 +139,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
@@ -179,4 +186,63 @@ test('Shift+Enter stays a newline in every environment', async () => {
   await typeAndPress(view, enterEvent({ shiftKey: true }));
 
   assert.equal(sendMessage.mock.calls.length, 0);
+});
+
+
+// Local installation policy: composition does not consume a send shortcut.
+// Drive the real hook so both native flags and the former global Safari guard
+// are covered alongside the retained soft-keyboard/newline behavior above.
+test.each(['native composing flag', 'composition in progress', 'composition just ended'])(
+  'desktop Enter sends Korean text once despite %s',
+  async (compositionState) => {
+    vi.spyOn(performance, 'now').mockReturnValue(10_000);
+    const sendMessage = vi.fn();
+    const view = renderComposer(sendMessage);
+    const text = '문장 중간에서도 전송합니다';
+    const enter = enterEvent({ nativeEvent: { isComposing: compositionState === 'native composing flag' } });
+
+    act(() => {
+      if (compositionState !== 'native composing flag') {
+        window.dispatchEvent(new CompositionEvent('compositionstart'));
+      }
+      if (compositionState === 'composition just ended') {
+        window.dispatchEvent(new CompositionEvent('compositionend'));
+      }
+    });
+    await typeAndPress(view, enter, text);
+
+    assert.equal(enter.wasPrevented(), true);
+    assert.equal(sendMessage.mock.calls.length, 1);
+    assert.equal(sendMessage.mock.calls[0][0].content, text);
+    assert.equal(view.result.current.input, '');
+  },
+);
+
+test.each(['ctrlKey', 'metaKey'] as const)('%s+Enter sends during composition in Ctrl+Enter mode', async (modifier) => {
+  const sendMessage = vi.fn();
+  const view = renderComposer(sendMessage, true);
+  const enter = enterEvent({ [modifier]: true, nativeEvent: { isComposing: true } });
+
+  await typeAndPress(view, enter, '한글 전송');
+
+  assert.equal(enter.wasPrevented(), true);
+  assert.equal(sendMessage.mock.calls.length, 1);
+  assert.equal(sendMessage.mock.calls[0][0].content, '한글 전송');
+});
+
+test.each([
+  { label: 'desktop Shift+Enter', coarse: false, shiftKey: true, sendByCtrlEnter: false },
+  { label: 'soft keyboard Enter', coarse: true, shiftKey: false, sendByCtrlEnter: false },
+  { label: 'Enter in Ctrl+Enter mode', coarse: false, shiftKey: false, sendByCtrlEnter: true },
+])('$label remains a newline during composition', async ({ coarse, shiftKey, sendByCtrlEnter }) => {
+  coarsePointer = coarse;
+  const sendMessage = vi.fn();
+  const view = renderComposer(sendMessage, sendByCtrlEnter);
+  const enter = enterEvent({ shiftKey, nativeEvent: { isComposing: true } });
+
+  await typeAndPress(view, enter, '한글 줄바꿈');
+
+  assert.equal(enter.wasPrevented(), false);
+  assert.equal(sendMessage.mock.calls.length, 0);
+  assert.equal(view.result.current.input, '한글 줄바꿈');
 });
