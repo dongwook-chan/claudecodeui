@@ -106,9 +106,11 @@ export default function SidebarProjectSessions({
   const treeRows = useMemo(() => {
     const projectPins = pins?.sessions.filter((pin) => pin.projectId === project.projectId) ?? [];
     const loadedIds = new Set(sessions.map((session) => session.id));
+    const ancestors = new Map(sessions.flatMap((session) => session.forkAncestors ?? []).map((ancestor) => [ancestor.id, ancestor]));
     // Include pins beyond the loaded page without changing page offsets or
     // replacing loaded rows' fork metadata with the smaller pin summaries.
     const offPagePins: SessionWithProvider[] = projectPins.filter((pin) => !loadedIds.has(pin.sessionId)).map((pin) => ({
+      ...ancestors.get(pin.sessionId),
       id: pin.sessionId, summary: pin.sessionTitle, __provider: pin.provider,
       __projectId: project.projectId, lastActivity: pin.lastActivity ?? undefined,
     }));

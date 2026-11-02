@@ -143,21 +143,87 @@ test('project pins remain scoped to their owner and include older pages without 
   assert.deepEqual(more.mock.calls, [['project-1']]);
 });
 
-test('pinning a fork lifts it above its parent without a duplicate, and unpin restores the tree', async () => {
+test.each([false, true])('pinning any family member preserves its tree and marks only explicit pins in compact=%s', async (compact) => {
+  mocks.compact = compact;
   const projects: Project[] = [{ ...PROJECTS[0], sessions: [
+    { id: 'newest', summary: 'Newest', __provider: 'codex' },
+    { id: 'c', summary: 'Title c', __provider: 'codex', forkedFromSessionId: 'b' },
     { id: 'b', summary: 'Title b', __provider: 'codex', forkedFromSessionId: 'a' },
+    { id: 'sibling', summary: 'Sibling', __provider: 'codex', forkedFromSessionId: 'a' },
     { id: 'a', summary: 'Title a', __provider: 'codex' },
   ] }];
-  mocks.load.mockResolvedValue(response([B]));
+  let savedPins: RecentConversationListItem[] = [];
+  mocks.load.mockResolvedValue(response([]));
+  mocks.save.mockImplementation(async (id: string, pinned: boolean) => {
+    savedPins = pinned ? [conversation(id), ...savedPins] : savedPins.filter((pin) => pin.sessionId !== id);
+    return response(savedPins);
+  });
   const props = contentProps('projects');
   props.projectListProps = { ...listProps, projects, filteredProjects: projects };
   render(<SessionPinsProvider projects={projects}><SidebarContent {...props} /></SessionPinsProvider>);
-  const rows = () => [...screen.getByTestId('project-session-tree').querySelectorAll('[data-session-id]')]
-    .map((row) => [row.getAttribute('data-session-id'), row.getAttribute('data-fork-depth')]);
-  await waitFor(() => assert.deepEqual(rows(), [['b', '0'], ['a', '0']]));
+  const tree = screen.getByTestId('project-session-tree');
+  const rows = () => [...tree.querySelectorAll('[data-session-id]')]
+    .map((row) => [row.getAttribute('data-session-id'), row.getAttribute('data-parent-session-id'), row.getAttribute('data-fork-depth')]);
+  const family = [['a', null, '0'], ['b', 'a', '1'], ['c', 'b', '2'], ['sibling', 'a', '1']];
+  const newest = ['newest', null, '0'];
+  await waitFor(() => assert.equal(screen.getByRole('button', { name: 'Pin session: Title a' }).hasAttribute('disabled'), false));
+  assert.deepEqual(rows(), [newest, ...family]);
+
+  for (const id of ['a', 'b', 'c']) {
+    fireEvent.click(screen.getByRole('button', { name: `Pin session: Title ${id}` }));
+    await waitFor(() => assert.deepEqual(rows(), [...family, newest]));
+    const unpin = screen.getByRole('button', { name: `Unpin session: Title ${id}` });
+    assert.equal(unpin.getAttribute('aria-pressed'), 'true');
+    assert.equal(tree.querySelectorAll('button[aria-pressed="true"]').length, 1);
+    for (const other of ['a', 'b', 'c'].filter((value) => value !== id)) {
+      assert.equal(screen.getByRole('button', { name: `Pin session: Title ${other}` }).getAttribute('aria-pressed'), 'false');
+    }
+    assert.equal(tree.querySelector('[data-session-id="b"] [data-fork-connector]')?.getAttribute('data-fork-connector'), 'branch');
+    assert.equal(tree.querySelector('[data-session-id="sibling"] [data-fork-connector]')?.getAttribute('data-fork-connector'), 'last');
+    fireEvent.click(within(tree.querySelector('[data-session-id="a"]') as HTMLElement).getByRole('button', { name: 'sessions.collapseForks' }));
+    assert.deepEqual(rows(), [family[0], newest]);
+    fireEvent.click(screen.getByRole('button', { name: 'sessions.expandForks' }));
+    assert.deepEqual(rows(), [...family, newest]);
+    fireEvent.click(screen.getByRole('button', { name: `Unpin session: Title ${id}` }));
+    await waitFor(() => assert.deepEqual(rows(), [newest, ...family]));
+    assert.equal(tree.querySelectorAll('button[aria-pressed="true"]').length, 0);
+  }
+
+  // Removing one of multiple explicit pins must keep the family lifted.
+  fireEvent.click(screen.getByRole('button', { name: 'Pin session: Title a' }));
+  await waitFor(() => assert.ok(screen.queryByRole('button', { name: 'Unpin session: Title a' })));
+  fireEvent.click(screen.getByRole('button', { name: 'Pin session: Title c' }));
+  await waitFor(() => assert.ok(screen.queryByRole('button', { name: 'Unpin session: Title c' })));
+  fireEvent.click(screen.getByRole('button', { name: 'Unpin session: Title a' }));
+  await waitFor(() => assert.ok(screen.queryByRole('button', { name: 'Pin session: Title a' })));
+  assert.deepEqual(rows(), [...family, newest]);
+  assert.equal(tree.querySelectorAll('button[aria-pressed="true"]').length, 1);
+  fireEvent.click(screen.getByRole('button', { name: 'Unpin session: Title c' }));
+  await waitFor(() => assert.deepEqual(rows(), [newest, ...family]));
+});
+
+test('an off-page pinned ancestor keeps its own parent and paginated descendants', async () => {
+  const projects: Project[] = [{ ...PROJECTS[0], sessions: [
+    { id: 'newest', summary: 'Newest', __provider: 'codex' },
+    { id: 'c', summary: 'Title c', __provider: 'codex', forkedFromSessionId: 'b', forkAncestors: [
+      { id: 'b', summary: 'Old title b', __provider: 'codex', forkedFromSessionId: 'a' },
+      { id: 'a', summary: 'Title a', __provider: 'codex' },
+    ] },
+  ], sessionMeta: { total: 30, hasMore: true } }];
+  mocks.load.mockResolvedValue(response([B]));
+  const props = contentProps('projects');
+  const more = vi.fn();
+  props.projectListProps = { ...listProps, projects, filteredProjects: projects, onLoadMoreSessions: more };
+  render(<SessionPinsProvider projects={projects}><SidebarContent {...props} /></SessionPinsProvider>);
+  await waitFor(() => assert.ok(screen.queryByRole('button', { name: 'Unpin session: Title b' })));
+  const tree = screen.getByTestId('project-session-tree');
+  assert.deepEqual([...tree.querySelectorAll('[data-session-id]')].map((row) => [
+    row.getAttribute('data-session-id'), row.getAttribute('data-parent-session-id'), row.getAttribute('data-fork-depth'),
+  ]), [['a', null, '0'], ['b', 'a', '1'], ['c', 'b', '2'], ['newest', null, '0']]);
+  assert.equal(tree.querySelectorAll('button[aria-pressed="true"]').length, 1);
   assert.equal(screen.getAllByText('Title b').length, 1);
-  fireEvent.click(screen.getByRole('button', { name: 'Unpin session: Title b' }));
-  await waitFor(() => assert.deepEqual(rows(), [['a', '0'], ['b', '1']]));
+  fireEvent.click(screen.getByRole('button', { name: 'Load more sessions' }));
+  assert.deepEqual(more.mock.calls, [['project-1']]);
 });
 
 test('renaming a pinned project row opens one editor in its project', async () => {
