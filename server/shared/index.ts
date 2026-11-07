@@ -37,4 +37,4 @@ export type { IProviderSessions } from './interfaces.js';
 export type { MemoryCitation, SubagentActivity, SubagentInfo } from './types.js';
 
 // Provider runtimes share read-only side-question transport contracts.
-export type { SideQuestionOutcome, SideQuestionRequest, SideQuestionSink } from './types.js';
+export type { SideQuestion, SideQuestionEvent, SideQuestionRuntime, SideQuestionOutcome, SideQuestionRequest, SideQuestionSink } from './types.js';

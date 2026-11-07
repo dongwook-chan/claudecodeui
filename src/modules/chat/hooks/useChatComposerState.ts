@@ -1714,12 +1714,6 @@ export function useChatComposerState({
   const handleKeyDown = useCallback(
     (event: KeyboardEvent<HTMLTextAreaElement>) => {
       if (event.key === 'Enter') {
-        const endedJustNow =
-          performance.now() - lastCompositionEndAtRef.current < SAFARI_IME_RACE_WINDOW_MS;
-        if (event.nativeEvent.isComposing || isComposingRef.current || endedJustNow) {
-          return;
-        }
-
         // Option/Alt+Enter asks a side question in every state (loading,
         // background, idle) and even with the command menu or file-mention
         // dropdown open, so this has to run ahead of

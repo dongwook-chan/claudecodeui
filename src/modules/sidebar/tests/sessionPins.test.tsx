@@ -43,7 +43,7 @@ const PROJECTS: Project[] = [{
 const actions: SessionRowActions = {
   activeRename: null, activeSessions: new Set(), backgroundSessionIds: new Set(), attentionSessionIds: new Set(),
   onRenameDraftChange: noop, onStartEditingSession: noop, onCancelEditingSession: noop,
-  onSaveEditingSession: noop, onDeleteSession: noop,
+  onSaveEditingSession: noop, onArchiveSession: noop, onDeleteSession: noop,
 };
 const listProps: SidebarProjectListProps = {
   ...actions, projects: PROJECTS, filteredProjects: PROJECTS, selectedProject: null, selectedSession: null,
