@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 
-import { projectsDb, sessionPinsDb, sessionsDb } from '@/modules/database/index.js';
+import { projectsDb, sessionPinsDb, sessionsDb, sessionRuntimeFailuresDb } from '@/modules/database/index.js';
 import { broadcastSessionUpserted, chatRunRegistry } from '@/modules/websocket/index.js';
 import { providerRegistry } from '@/modules/providers/provider.registry.js';
 import { listBusyClaudeCliSessions } from '@/modules/providers/services/claude-cli-liveness.service.js';
@@ -859,38 +859,43 @@ export const sessionsService = {
     const projectPath = session.project_path ?? '';
     const requestedLimit = options.limit ?? null;
     const requestedOffset = options.offset ?? 0;
-
-    // A session whose context was cleared reads as one conversation: every
-    // earlier part, each closed by its marker, then whatever has run since.
+    const failures = provider === 'codex' ? sessionRuntimeFailuresDb.list(sessionId) : [];
     const clearedSegments = sessionsDb.getClearedContextSegments(sessionId);
-    if (clearedSegments.length > 0) {
-      const messages: NormalizedMessage[] = [];
-      for (const segment of clearedSegments) {
-        messages.push(...await readClearedContextSegment(sessionId, provider, projectPath, segment));
-      }
-
-      // Nothing has run since the last clear until the next run announces its
-      // provider session, and an explicit null usage says so — leaving it out
-      // would let the client keep showing the cleared context's numbers.
-      let tokenUsage: unknown = null;
-      if (session.provider_session_id) {
-        const current = await readCurrentContextHistory(session, null, 0);
-        messages.push(...current.messages);
-        tokenUsage = current.tokenUsage;
-      }
-
-      const { page, hasMore } = sliceTailPage(messages, requestedLimit, Math.max(0, requestedOffset));
-      return {
-        messages: page.map((message) => ({ ...message, sessionId })),
-        total: messages.length,
-        hasMore,
-        offset: requestedOffset,
-        limit: requestedLimit,
-        tokenUsage,
-      };
+    if (clearedSegments.length === 0 && failures.length === 0) {
+      return readCurrentContextHistory(session, requestedLimit, requestedOffset);
     }
 
-    return readCurrentContextHistory(session, requestedLimit, requestedOffset);
+    // Read closed contexts before the live transcript. Durable failures must
+    // merge after the transcript cache and before pagination, including a
+    // failed first launch without a native transcript or a cleared context.
+    const messages: NormalizedMessage[] = [];
+    for (const segment of clearedSegments) {
+      messages.push(...await readClearedContextSegment(sessionId, provider, projectPath, segment));
+    }
+    const current = await readCurrentContextHistory(session, null, 0);
+    messages.push(...current.messages);
+    for (const failure of failures) {
+      const alreadyVisible = messages.some((message) => message.kind === 'error'
+        && message.timestamp >= failure.startedAt && message.timestamp <= failure.timestamp);
+      if (!alreadyVisible) {
+        messages.push(createNormalizedMessage({
+          id: failure.id, sessionId, timestamp: failure.timestamp,
+          provider: 'codex', kind: 'error', content: failure.content,
+        }));
+      }
+    }
+    if (failures.length > 0) messages.sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
+    const { page, hasMore } = sliceTailPage(messages, requestedLimit, Math.max(0, requestedOffset));
+    return {
+      ...current,
+      messages: page.map((message) => ({ ...message, sessionId })),
+      total: messages.length,
+      hasMore,
+      offset: requestedOffset,
+      limit: requestedLimit,
+      // A cleared session must drop the old usage until a new context runs.
+      ...(clearedSegments.length > 0 && !session.provider_session_id ? { tokenUsage: null } : {}),
+    };
   },
 
   /**
