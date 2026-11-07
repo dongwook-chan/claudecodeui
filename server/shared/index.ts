@@ -21,6 +21,8 @@ export type { IProviderSessionSynchronizer } from './interfaces.js';
 export type { SessionPinRecord } from './types.js';
 // Providers maps sanitized AgentX queue status to app-session activity.
 export type { AgentxQueuedSession } from './types.js';
+// Providers and Database share the bounded failure evidence contract.
+export type { SessionRuntimeFailure } from './types.js';
 // Providers routes validate model, MCP and skill payloads through the shared contract.
 export type { CustomProviderModelEffort, CustomProviderModelInput, McpScope, McpTransport, ProviderSkillCreateFile, ProviderSkillCreateInput, UpsertProviderMcpServerInput } from './types.js';
 export { asyncHandler, createApiSuccessResponse } from './utils.js';
