@@ -250,7 +250,7 @@ test('a refused send never rewinds the conversation', async () => {
         sessionId: SESSION_ID,
         content: 'a turn that is already running',
       }));
-      await settle();
+      for (let attempt = 0; runs.length === 0 && attempt < 100; attempt += 1) await settle();
       assert.equal(runs.length, 1);
 
       socket.emit('message', JSON.stringify({
@@ -259,7 +259,9 @@ test('a refused send never rewinds the conversation', async () => {
         anchorId: 'turn-b',
         content: 'an edit that arrives too late',
       }));
-      await settle();
+      // Resolving a native edit anchor can outlive one event-loop tick under
+      // the complete regression suite. Wait for the refusal before closing DB.
+      for (let attempt = 0; !socket.frames.some((frame) => frame.code === 'RUN_IN_PROGRESS') && attempt < 100; attempt += 1) await settle();
     } finally {
       sessionsService.rewindSessionForEdit = realRewind;
     }
