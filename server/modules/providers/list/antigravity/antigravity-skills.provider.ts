@@ -2,7 +2,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { SkillsProvider } from '@/modules/providers/shared/skills/skills.provider.js';
-import type { ProviderSkillSource } from '@/shared/types.js';
+import type { ProviderSkillSource } from '@/shared/index.js';
 
 /** Antigravity skill filesystem adapter used by shared skill routes. */
 export class AntigravitySkillsProvider extends SkillsProvider {
@@ -16,12 +16,12 @@ export class AntigravitySkillsProvider extends SkillsProvider {
     return [
       {
         scope: 'project',
-        rootDir: path.join(workspacePath, '.antigravity', 'skills'),
+        rootDir: path.join(workspacePath, '.agents', 'skills'),
         commandPrefix: '/',
       },
       {
         scope: 'user',
-        rootDir: path.join(os.homedir(), '.antigravity', 'skills'),
+        rootDir: path.join(os.homedir(), '.gemini', 'antigravity-cli', 'skills'),
         commandPrefix: '/',
       },
     ];
@@ -31,7 +31,7 @@ export class AntigravitySkillsProvider extends SkillsProvider {
   protected async getGlobalSkillSource(): Promise<ProviderSkillSource> {
     return {
       scope: 'user',
-      rootDir: path.join(os.homedir(), '.antigravity', 'skills'),
+      rootDir: path.join(os.homedir(), '.gemini', 'antigravity-cli', 'skills'),
       commandPrefix: '/',
     };
   }

@@ -1,15 +1,14 @@
 import type { CliVersionProbe, IProviderAuth, ProviderAuthStatus } from '@/shared/index.js';
-import { probeCliVersion, resolveConfiguredCliExecutable, runProviderCliCommand } from '@/shared/index.js';
+import { buildProviderCliEnv, probeCliVersion, resolveConfiguredCliExecutable, runProviderCliCommand } from '@/shared/index.js';
 
 const antigravityExecutable = () =>
   resolveConfiguredCliExecutable(process.env.AGY_CLI_PATH, 'agy');
 
-/** Antigravity installation and authentication probe used by provider routes. */
+/** Used by AntigravityProvider to report installation and usable account status. */
 export class AntigravityProviderAuth implements IProviderAuth {
-  /** Provider status and CLI settings use the configured AGY executable's version. */
+  /** Used by Providers' auth and CLI-version services to probe the configured AGY binary. */
   checkInstalled(): CliVersionProbe {
-    const probe = probeCliVersion(antigravityExecutable());
-    return { ...probe, installed: probe.installed && probe.exitCode === 0 };
+    return probeCliVersion(antigravityExecutable(), ['--version'], buildProviderCliEnv());
   }
 
   /** Reports installation and login state through lightweight AGY probes. */
@@ -18,8 +17,8 @@ export class AntigravityProviderAuth implements IProviderAuth {
     if (!installed) {
       return {
         installed: false,
-        installedVersion,
         provider: 'antigravity',
+        installedVersion,
         authenticated: false,
         email: null,
         method: null,
@@ -30,16 +29,26 @@ export class AntigravityProviderAuth implements IProviderAuth {
     const modelsResult = await runProviderCliCommand(antigravityExecutable(), ['models'], {
       timeoutMs: 10_000,
     });
-    const authenticated = !modelsResult.error && modelsResult.exitCode === 0;
+    const eligibilityFailure = /account ineligible|not eligible for antigravity|eligibility check failed/i.test(
+      `${modelsResult.stdout ?? ''}\n${modelsResult.stderr ?? ''}`,
+    );
+    const authenticated = !modelsResult.error
+      && modelsResult.exitCode === 0
+      && Boolean(modelsResult.stdout?.trim())
+      && !eligibilityFailure;
 
     return {
       installed,
-      installedVersion,
       provider: 'antigravity',
+      installedVersion,
       authenticated,
-      email: authenticated ? 'Authenticated' : null,
+      email: null,
       method: authenticated ? 'agy' : null,
-      error: authenticated ? undefined : 'Antigravity CLI is not authenticated',
+      error: authenticated
+        ? undefined
+        : eligibilityFailure
+          ? 'Antigravity account is not eligible. Verify the account in Antigravity and retry.'
+          : 'Antigravity CLI is not authenticated',
     };
   }
 }

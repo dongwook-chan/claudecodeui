@@ -46,7 +46,7 @@ test('side questions are supported by claude, codex and opencode, not by cursor 
     claude: true,
     codex: true,
     cursor: false,
-    antigravity: false,
+    antigravity: true,
     opencode: true,
   };
   for (const [provider, supported] of Object.entries(expected) as Array<[LLMProvider, boolean]>) {
