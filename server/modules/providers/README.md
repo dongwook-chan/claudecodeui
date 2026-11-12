@@ -47,6 +47,77 @@ Current provider ids in this repo are:
 - `opencode`
 - `antigravity`
 
+Antigravity runs use the CLI's [headless streaming protocol](https://antigravity.google/docs/cli/headless/):
+`--input-format stream-json --output-format stream-json`, with one JSON user
+message on stdin. The subprocess's top-level
+`conversation_id` on the `init` event binds the app session immediately; shared
+conversation files are never used to guess ownership. Fresh runs can overlap.
+A CLI that does not emit this protocol reports an explicit error. Aborts send
+SIGTERM, escalate to SIGKILL after three seconds, and retain process ownership
+until exit. Successful stderr diagnostics are excluded from assistant replies.
+
+Antigravity supports whole-conversation and message-point forks through the
+shared session-fork endpoint and controls. A read-only SQLite backup preserves native steps
+and independently indexed generation/executor caches, assigns new native and
+trajectory identities, and copies conversation artifacts into an independent
+brain directory. The original conversation and workspace files remain intact.
+The app retains the source model, effort, title and fork ancestry. AGY currently
+exposes `/fork` only in its interactive TUI, so this adapter validates the known
+native storage layout and rejects unsupported layouts. Prefix snapshots filter
+generation/executor caches by their referenced step indices, not cache ordinals;
+failed generations with no output steps are dropped. Linked/battle histories
+and malformed references fail without changing the app mapping. Native step
+anchors also drive the shared pencil edit/resend gateway; editing the first
+prompt detaches the old native conversation, and later edits repoint the app
+session only after its independent prefix snapshot succeeds.
+
+The common capability matrix also enables model-specific effort, file/image
+references, tool calls/results and token usage. Native `--effort` receives only
+available model variants or declared custom levels; fixed models hide the picker.
+The text-only input protocol uses the existing file-reference envelopes for
+attachments. Live/persisted tool identities agree across history refreshes,
+and native usage does not double-count cache reads or thinking. See the
+[surface comparison](../../../docs/antigravity-provider-parity.md) for remaining
+protocol limits.
+
+Antigravity also implements the shared runtime `askSideQuestion` contract, so
+the existing send menu, `/btw`, streaming cards, reconnect and dismiss handling
+work without provider-specific frontend branches. Its CLI's native `/btw` is
+[interactive-only](https://antigravity.google/docs/cli/commands/btw/), so the
+adapter takes an online SQLite snapshot into a disposable native conversation,
+retains the source model, and sends the side-conversation boundary on stdin.
+Unlike the explicit user fork endpoint, this read-only snapshot can be taken
+while the parent is running. Unknown or not-yet-persisted native state fails
+explicitly. A temporary custom agent exposes only file reading and search;
+plan mode and per-process deny rules also block writes, commands, MCP and
+browser tools even when the parent uses bypass permissions. Side runs do
+not bind or complete the parent, reserve its run slot, or send run notifications.
+A marker written before the transcript keeps temporary copies out of session
+indexing, including after restart. Copies are removed after process close on
+success, failure or dismiss; a cleanup failure is reported with the side answer.
+
+Queued follow-ups use the same persisted queue and dispatcher for all providers.
+They wait for both managed turns and externally running native turns. Dispatch
+admission returns a provider-independent `retryable` result when a competing
+turn wins after a queue claim, so the queue restores that unsent message.
+
+On Linux, external AGY activity requires both a busy native summary and a live,
+same-user AGY process holding that conversation's exclusive presence lock.
+These turns appear as external activity, cannot be interrupted by CloudCLI,
+and block duplicate sends and forks. Idle/crashed owners do not remain busy.
+Incremental transcript scans use modification times, and the mapped app row
+keeps ownership of its project path and title when native history is stale.
+
+Antigravity model discovery queries `agy models` on every backend catalog read,
+so account changes and subscription changes use the CLI's current model list.
+The fallback catalog is used only when discovery fails or returns no models;
+it is not evidence of account-specific model entitlement. Authentication status
+also retries the CLI probe on each read, reports account eligibility failures
+separately from missing authentication, and requires a nonempty model list.
+Antigravity plan quotas and shared model-group windows remain owned by the
+native CLI and external usage integrations; this provider does not infer them
+from a subscription name or from session token usage.
+
 Those ids are mirrored in backend unions and frontend provider constants. If
 adding a new provider, update every place that hardcodes this list.
 
@@ -149,7 +220,11 @@ Current MCP formats in this repo are:
 | Codex | `.codex/config.toml` | `user`, `project` | `stdio`, `http` |
 | Cursor | `.cursor/mcp.json` | `user`, `project` | `stdio`, `http` |
 | OpenCode | `~/.config/opencode/opencode.json` or `<workspace>/opencode.json` (`.jsonc` is read when present) | `user`, `project` | `stdio`, `http` |
-| Antigravity | `.antigravity/mcp.json` | `user`, `project` | `stdio`, `http` |
+| Antigravity | `~/.gemini/config/mcp_config.json`, `<workspace>/.agents/mcp_config.json` | `user`, `project` | `stdio`, `http` (`serverUrl`) |
+
+The Antigravity user-level MCP path is confirmed by the official
+[migration directory mapping](https://antigravity.google/docs/cli/gcli-migration/#directory-mapping).
+It intentionally differs from the CLI's conversation/history storage root.
 
 5. Implement skills.
 
@@ -170,7 +245,7 @@ Current skill discovery roots are:
 | Codex | `~/.agents/skills`, `~/.codex/skills/.system`, `/etc/codex/skills` | `<workspace>/.agents/skills`, `path.dirname(workspacePath)/.agents/skills`, topmost git root `.agents/skills` | `$` | Overlapping roots are deduplicated before scanning. |
 | Cursor | `~/.cursor/skills` | `<workspace>/.cursor/skills`, `<workspace>/.agents/skills` | `/` | Uses slash-style commands. |
 | OpenCode | `~/.config/opencode/skills`, `~/.claude/skills`, `~/.agents/skills` | Cwd-to-topmost-git-root `.opencode/skills`, `.claude/skills`, and `.agents/skills` | `/` | Reuses OpenCode, Claude, and Agents skill locations. Overlapping roots are deduplicated before scanning. |
-| Antigravity | `~/.antigravity/skills` | `<workspace>/.antigravity/skills` | `/` | Uses slash-style commands. |
+| Antigravity | `~/.gemini/antigravity-cli/skills` | `<workspace>/.agents/skills` | `/` | Uses slash-style commands. |
 
 Command forms currently used by the providers are:
 

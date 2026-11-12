@@ -1,3 +1,5 @@
+import { AntigravityForkProvider } from './antigravity-fork.provider.js';
+
 import { AbstractProvider } from '@/modules/providers/shared/base/abstract.provider.js';
 import { AntigravityProviderAuth } from '@/modules/providers/list/antigravity/antigravity-auth.provider.js';
 import { AntigravityMcpProvider } from '@/modules/providers/list/antigravity/antigravity-mcp.provider.js';
@@ -13,10 +15,11 @@ import type {
   IProviderSessionSynchronizer,
   IProviderSkills,
   IProviderSessions,
-} from '@/shared/interfaces.js';
+} from '@/shared/index.js';
 
 /** Composes Antigravity adapters for registration in the Providers module. */
 export class AntigravityProvider extends AbstractProvider {
+  readonly fork = new AntigravityForkProvider();
   readonly runtime: IProviderRuntime = antigravityRuntime;
   readonly models: IProviderModels = new AntigravityProviderModels();
   readonly mcp = new AntigravityMcpProvider();
