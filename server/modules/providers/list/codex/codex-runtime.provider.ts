@@ -22,12 +22,9 @@ import {
   createCompleteMessage,
   createNormalizedMessage,
 } from '@/shared/index.js';
-import { sessionRuntimeFailuresDb } from '@/modules/database/index.js';
 import { notifyRunFailed, notifyRunStopped } from '@/modules/notifications/index.js';
-import type { AnyRecord, ProviderRuntimeContext, ProviderRuntimeWriter, SessionRuntimeFailure } from '@/shared/index.js';
-// Not re-exported through the `@/shared/index.js` barrel yet (same seam the
-// Claude side-question provider already uses), so imported directly.
-import type { SideQuestionOutcome, SideQuestionRequest, SideQuestionSink } from '@/shared/types.js';
+import { sessionRuntimeFailuresDb } from '@/modules/database/index.js';
+import type { AnyRecord, ProviderRuntimeContext, ProviderRuntimeWriter, SessionRuntimeFailure, SideQuestionOutcome, SideQuestionRequest, SideQuestionSink } from '@/shared/index.js';
 
 import { codexAppServer } from './codex-app-server.client.js';
 import { createCodexProcessEnv, resolveCodexCli } from './codex-cli.js';

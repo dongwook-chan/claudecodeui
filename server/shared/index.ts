@@ -11,7 +11,7 @@ export type { AnyRecord, ProviderNotificationTarget, ProviderRuntimeContext, Pro
 export type { SessionPinRecord } from './types.js';
 // Providers uses these shared request payloads, validators and response helpers.
 export type { CustomProviderModelEffort, CustomProviderModelInput, LLMProvider, McpScope, McpTransport, ProviderSkillCreateFile, ProviderSkillCreateInput, UpsertProviderMcpServerInput } from './types.js';
-export { AppError, asyncHandler, createApiSuccessResponse, SIDE_QUESTION_ID_PATTERN } from './utils.js';
+export { AppError, asyncHandler, createApiSuccessResponse } from './utils.js';
 
 // Providers uses the shared history and runtime summary contracts through this barrel.
 export type { AuthenticatedWebSocketRequest, BackgroundTaskSummary, ClearedContextSegment, FetchHistoryOptions, FetchHistoryResult, NormalizedMessage, ProviderPermissionDecision, WorkflowAgentActivity } from './types.js';
@@ -29,6 +29,9 @@ export { getLinuxFileLockIdentity, parseLinuxExclusiveFileLocks } from './utils.
 // WebSocket and provider runtimes share normalized attachment descriptors.
 export type { ChatAttachmentDescriptor } from './image-attachments.js';
 export { getGlobalImageAssetsDir, isImageAttachmentDescriptor, normalizeAttachmentDescriptors } from './image-attachments.js';
+
+// WebSocket validates the same side-question ids as the providers dismiss route.
+export { SIDE_QUESTION_ID_PATTERN } from './utils.js';
 // Provider synchronizers use these shared filesystem and transcript metadata helpers.
 export { buildLookupMap, extractFirstValidJsonlData, findFilesRecursivelyModifiedAfter, normalizeSessionName, readFileTimestamps, readObjectRecord, readOptionalString } from './utils.js';
 export type { IProviderSessionSynchronizer } from './interfaces.js';
@@ -42,3 +45,6 @@ export { prepareTranscriptMessages } from './message-unification.js';
 export { generateMessageId, truncateSubagentActivity } from './utils.js';
 export type { IProviderSessions } from './interfaces.js';
 export type { MemoryCitation, SubagentActivity, SubagentInfo } from './types.js';
+
+// Provider runtimes share read-only side-question transport contracts.
+export type { SideQuestion, SideQuestionEvent, SideQuestionRuntime, SideQuestionOutcome, SideQuestionRequest, SideQuestionSink } from './types.js';

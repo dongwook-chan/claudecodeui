@@ -136,7 +136,9 @@ test('a refreshed token on the initial auth check does not run a second loading 
 });
 
 test('tokens refreshed while the workspace is open do not remount it', async () => {
-  localStorage.setItem('auth-token', makeToken(nowSeconds() - 4 * 86400));
+  // Keep scheduled renewal out of this header-rotation test. The preceding
+  // regression separately covers bootstrap with an aged token.
+  localStorage.setItem('auth-token', makeToken(nowSeconds()));
 
   renderApp();
   await screen.findByText('workspace');

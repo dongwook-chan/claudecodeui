@@ -19,6 +19,7 @@ import {
   normalizeAttachmentDescriptors,
   createCompleteMessage,
   parseIncomingJsonObject,
+  SIDE_QUESTION_ID_PATTERN,
 } from '@/shared/index.js';
 import type {
   AnyRecord,
@@ -31,7 +32,6 @@ import type {
   SideQuestionEvent,
   SideQuestionRuntime,
 } from '@/shared/index.js';
-import { createCompleteMessage, parseIncomingJsonObject, SIDE_QUESTION_ID_PATTERN } from '@/shared/index.js';
 
 /**
  * Trust boundary for client-supplied image attachments: chat.send options come
