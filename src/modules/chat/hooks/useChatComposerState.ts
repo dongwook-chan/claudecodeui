@@ -52,7 +52,7 @@ type UseChatComposerStateArgs = {
   canAbortSession: boolean;
   tokenBudget: Record<string, unknown> | null;
   sendMessage: (message: unknown) => void;
-  /** Whether the chat socket is currently open; a side-question ask while it is not would send nothing and leave the optimistic entry pending forever. */
+  /** Socket state used to refuse side questions while disconnected. */
   isConnected?: boolean;
   sendMessageWithAck: SendMessageWithAck;
   socketReady: boolean;
@@ -1714,12 +1714,6 @@ export function useChatComposerState({
   const handleKeyDown = useCallback(
     (event: KeyboardEvent<HTMLTextAreaElement>) => {
       if (event.key === 'Enter') {
-        const endedJustNow =
-          performance.now() - lastCompositionEndAtRef.current < SAFARI_IME_RACE_WINDOW_MS;
-        if (event.nativeEvent.isComposing || isComposingRef.current || endedJustNow) {
-          return;
-        }
-
         // Option/Alt+Enter asks a side question in every state (loading,
         // background, idle) and even with the command menu or file-mention
         // dropdown open, so this has to run ahead of

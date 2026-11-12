@@ -33,6 +33,8 @@ for (const provider of ['claude', 'cursor', 'codex', 'opencode', 'antigravity'])
       const dependencies = {
         runtime: {
           hasRuntime: () => true,
+          askSideQuestion: async () => ({ status: 'done' as const, answer: '' }),
+          steer: async () => false,
           run: async (_provider: string, _command: string, options: Record<string, any>) => {
             runtimeOptions = options;
             await new Promise<void>((resolve) => { finish = resolve; });
