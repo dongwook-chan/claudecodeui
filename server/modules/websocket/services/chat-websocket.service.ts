@@ -23,6 +23,7 @@ import {
 } from '@/shared/index.js';
 import type {
   AnyRecord,
+  ChatTurnDispatchResult,
   ChatAttachmentDescriptor,
   AuthenticatedWebSocketRequest,
   LLMProvider,
@@ -271,7 +272,7 @@ async function dispatchRun(
   dependencies: ChatWebSocketDependencies,
   extraRuntimeOptions: AnyRecord = {},
   beforeRun?: (run: NonNullable<ReturnType<typeof chatRunRegistry.startRun>>) => void | Promise<void>,
-): Promise<{ started: boolean; error: string | null }> {
+): Promise<ChatTurnDispatchResult> {
   const provider = session.provider as LLMProvider;
 
   const external = await sessionsService.getExternalSessionActivity(sessionId, { includeIdle: true });
@@ -281,7 +282,7 @@ async function dispatchRun(
       ? 'This session is idle but still open in the Codex CLI. Close it there before sending from CloudCLI.'
       : `This session is running in the ${cliName} CLI. Wait for it to finish or stop it in that CLI.`;
     if (ws) sendProtocolError(ws, 'RUN_IN_PROGRESS', message, sessionId);
-    return { started: false, error: `A ${cliName} CLI writer already owns this session.` };
+    return { started: false, error: `A ${cliName} CLI writer already owns this session.`, retryable: true };
   }
 
   // Local installation policy overrides stale browser, queued and recovery
@@ -315,7 +316,7 @@ async function dispatchRun(
         sessionId
       );
     }
-    return { started: false, error: 'A run is already in progress for this session.' };
+    return { started: false, error: 'A run is already in progress for this session.', retryable: true };
   }
 
   let failure: string | null = null;
@@ -929,7 +930,7 @@ export async function runDetachedChatTurn(
     interruptActiveRun?: boolean;
   },
   dependencies: ChatWebSocketDependencies,
-): Promise<{ started: boolean; error: string | null }> {
+): Promise<ChatTurnDispatchResult> {
   const session = sessionsDb.getSessionById(input.sessionId);
   if (!session) {
     return { started: false, error: 'The session no longer exists.' };
@@ -943,7 +944,7 @@ export async function runDetachedChatTurn(
   const activeRun = chatRunRegistry.getRun(input.sessionId);
   if (activeRun && activeRun.status === 'running') {
     if (!input.interruptActiveRun) {
-      return { started: false, error: 'A run was already in progress for this session.' };
+      return { started: false, error: 'A run was already in progress for this session.', retryable: true };
     }
     // Same shape as `chat.abort`: cancel the provider run and emit the
     // terminal `complete` on its behalf, so every watching client sees the
