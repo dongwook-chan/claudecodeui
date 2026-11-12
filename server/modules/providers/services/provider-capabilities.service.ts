@@ -167,6 +167,8 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
     effortLevels: [],
     supportsMessageEditing: false,
     supportsSessionForking: false,
+    supportsSideQuestions: false,
+    supportsSteering: false,
   },
 };
 

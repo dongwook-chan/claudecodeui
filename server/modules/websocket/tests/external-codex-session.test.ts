@@ -49,6 +49,8 @@ test('external Codex ownership survives subscribe, rejects duplicate sends and s
     handleChatConnection(connection as never, { user: { id: 1 } } as never, {
       runtime: {
         hasRuntime: () => true,
+        askSideQuestion: async () => ({ status: 'done' as const, answer: '' }),
+        steer: async () => false,
         run: async () => { started += 1; },
         abort: async () => { throw new Error('External Stop must use the native owner.'); },
         stopBackgroundTask: async () => false,
@@ -127,6 +129,8 @@ test('external Antigravity activity survives subscribe and rejects a second prom
     handleChatConnection(connection as never, { user: { id: 1 } } as never, {
       runtime: {
         hasRuntime: () => true,
+        askSideQuestion: async () => ({ status: 'done' as const, answer: '' }),
+        steer: async () => false,
         run: async () => { started = true; },
         abort: async () => { throw new Error('Do not signal an interactive AGY process.'); },
         stopBackgroundTask: async () => false,

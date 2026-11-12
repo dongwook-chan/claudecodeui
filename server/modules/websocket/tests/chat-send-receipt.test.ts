@@ -45,6 +45,8 @@ test('chat.send acknowledges durable receipt and an identical retry does not rer
     handleChatConnection(connection as never, { user: { id: 1 } } as never, {
       runtime: {
         hasRuntime: () => true,
+        askSideQuestion: async () => ({ status: 'done' as const, answer: '' }),
+        steer: async () => false,
         run: async () => { runCount += 1; },
         abort: async () => false,
         resolveToolApproval: () => undefined,
@@ -89,6 +91,8 @@ test('a retry returns the stored acceptance time rather than the retry time', as
     handleChatConnection(connection as never, { user: { id: 1 } } as never, {
       runtime: {
         hasRuntime: () => true,
+        askSideQuestion: async () => ({ status: 'done' as const, answer: '' }),
+        steer: async () => false,
         run: async () => { runCount += 1; },
         abort: async () => false,
         resolveToolApproval: () => undefined,
@@ -118,6 +122,8 @@ test('a delayed frame cannot start a run after its unsent session was discarded'
     handleChatConnection(connection as never, { user: { id: 1 } } as never, {
       runtime: {
         hasRuntime: () => true,
+        askSideQuestion: async () => ({ status: 'done' as const, answer: '' }),
+        steer: async () => false,
         run: async () => { runCount += 1; },
         abort: async () => false,
         resolveToolApproval: () => undefined,

@@ -14,6 +14,9 @@ export type { BackgroundTaskSummary, FetchHistoryOptions, FetchHistoryResult, LL
 export type { ChatAttachmentDescriptor } from './image-attachments.js';
 export { AppError, sliceTailPage, parseIncomingJsonObject } from './utils.js';
 export { getGlobalImageAssetsDir, isImageAttachmentDescriptor, normalizeAttachmentDescriptors } from './image-attachments.js';
+
+// WebSocket validates the same side-question ids as the providers dismiss route.
+export { SIDE_QUESTION_ID_PATTERN } from './utils.js';
 // Provider synchronizers use these shared filesystem and transcript metadata helpers.
 export { buildLookupMap, extractFirstValidJsonlData, findFilesRecursivelyModifiedAfter, normalizeSessionName, readFileTimestamps, readObjectRecord, readOptionalString } from './utils.js';
 export type { IProviderSessionSynchronizer } from './interfaces.js';
@@ -32,3 +35,6 @@ export { prepareTranscriptMessages } from './message-unification.js';
 export { generateMessageId, truncateSubagentActivity } from './utils.js';
 export type { IProviderSessions } from './interfaces.js';
 export type { MemoryCitation, SubagentActivity, SubagentInfo } from './types.js';
+
+// Provider runtimes share read-only side-question transport contracts.
+export type { SideQuestion, SideQuestionEvent, SideQuestionRuntime, SideQuestionOutcome, SideQuestionRequest, SideQuestionSink } from './types.js';
