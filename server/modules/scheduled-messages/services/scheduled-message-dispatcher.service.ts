@@ -3,7 +3,8 @@ import type { QueuedSessionMessageRecord, ScheduledMessageRow } from '@/modules/
 import { announceScheduledMessagesChanged } from '@/modules/scheduled-messages/services/scheduled-messages.service.js';
 import { chatRunRegistry, onRunSettled, runDetachedChatTurn } from '@/modules/websocket/index.js';
 import type { ProviderRuntimeGateway } from '@/modules/websocket/index.js';
-import { readQueuedChatMessage } from '@/shared/utils.js';
+import { readQueuedChatMessage } from '@/shared/index.js';
+import { sessionsService } from '@/modules/providers/index.js';
 
 /**
  * How often due messages are looked for.
@@ -62,7 +63,7 @@ async function sendClaimedQueuedMessage(
 
   // The registry check and run reservation are separate operations. If a run
   // wins that tiny race, put the turn back so the next poll tries again.
-  if (!result.started && result.error === 'A run was already in progress for this session.') {
+  if (!result.started && result.retryable) {
     sessionDraftsDb.restoreQueuedMessage(candidate);
     return;
   }
@@ -78,10 +79,9 @@ async function sendClaimedQueuedMessage(
  * work, which is why the composer asks before an interactive send. A queued
  * turn was promised to go "when this finishes", so it waits for that work too.
  */
-function isSessionBusy(sessionId: string, runtime: ProviderRuntimeGateway): boolean {
-  // sessionsSending too: a scheduled turn can complete before its send settles,
-  // and the session's next due row would then interrupt this queued turn.
-  return chatRunRegistry.isProcessing(sessionId) || runtime.hasBackgroundWork(sessionId) || sessionsSending.has(sessionId);
+async function isSessionBusy(sessionId: string, runtime: ProviderRuntimeGateway): Promise<boolean> {
+  return chatRunRegistry.isProcessing(sessionId) || runtime.hasBackgroundWork(sessionId) || sessionsSending.has(sessionId)
+    || Boolean(await sessionsService.getExternalSessionActivity(sessionId));
 }
 
 /**
@@ -98,7 +98,7 @@ export async function dispatchQueuedMessages(
   let claimed = 0;
 
   await Promise.all(candidates.map(async (candidate) => {
-    if (isSessionBusy(candidate.sessionId, runtime)) {
+    if (await isSessionBusy(candidate.sessionId, runtime)) {
       return;
     }
     if (!sessionDraftsDb.claimQueuedMessage(candidate)) {

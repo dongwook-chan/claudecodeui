@@ -430,7 +430,7 @@ test('allowed effort levels come from the provider, not from the built-in models
   // Every merged catalog carries the provider's levels for the model library,
   // weakest first, and an empty list where effort is unsupported.
   const expectedLevels: Record<LLMProvider, string[]> = {
-    antigravity: [],
+    antigravity: ['low', 'medium', 'high', 'xhigh', 'max'],
     claude: ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'],
     codex: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
     cursor: [],
