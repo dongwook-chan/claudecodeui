@@ -72,6 +72,8 @@ const render = (initialProps: Partial<Props> = {}) => {
       canAbortSession: true,
       tokenBudget: null,
       sendMessage: (message) => { sent.push(message as Record<string, unknown>); },
+      sendMessageWithAck: async (message) => { sent.push(message as Record<string, unknown>); return 'accepted' as const; },
+      socketReady: true,
       supportsSteering,
       scrollToBottom: () => undefined,
       addMessage: () => undefined,

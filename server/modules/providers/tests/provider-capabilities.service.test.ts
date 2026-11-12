@@ -39,13 +39,14 @@ test('capability effort levels cover every level a curated model declares', () =
 });
 
 
-test('side questions are supported by claude, codex and opencode, not by cursor', () => {
+test('side questions are supported by claude, codex and opencode, not by cursor or antigravity', () => {
   // Cursor has no headless way to ask on the side; its menu then offers only
   // Queue · Stop / Send anyway.
   const expected: Record<LLMProvider, boolean> = {
     claude: true,
     codex: true,
     cursor: false,
+    antigravity: false,
     opencode: true,
   };
   for (const [provider, supported] of Object.entries(expected) as Array<[LLMProvider, boolean]>) {

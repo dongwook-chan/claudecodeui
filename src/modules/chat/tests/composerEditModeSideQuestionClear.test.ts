@@ -44,6 +44,8 @@ const render = () => {
       tokenBudget: null,
       supportsSideQuestions: true,
       sendMessage: (message) => { sent.push(message as Frame); },
+      sendMessageWithAck: async (message) => { sent.push(message as Frame); return 'accepted' as const; },
+      socketReady: true,
       isConnected: true,
       scrollToBottom: () => undefined,
       addMessage: () => undefined,

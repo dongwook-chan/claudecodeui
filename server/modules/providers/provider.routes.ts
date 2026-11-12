@@ -20,8 +20,8 @@ import type {
   ProviderSkillCreateFile,
   ProviderSkillCreateInput,
   UpsertProviderMcpServerInput,
-} from '@/shared/types.js';
-import { AppError, asyncHandler, createApiSuccessResponse, SIDE_QUESTION_ID_PATTERN } from '@/shared/utils.js';
+} from '@/shared/index.js';
+import { AppError, asyncHandler, createApiSuccessResponse, SIDE_QUESTION_ID_PATTERN } from '@/shared/index.js';
 
 const router = express.Router();
 

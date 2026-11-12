@@ -29,7 +29,7 @@ const props = (overrides: Partial<ComponentProps<typeof SidebarProjectSessions>>
   activeSessions: new Set(), backgroundSessionIds: new Set(), attentionSessionIds: new Set(),
   currentTime: new Date('2026-10-18T00:00:00Z'), sessionRenameId: null, sessionRenameDraft: '',
   onRenameDraftChange: noop, onStartEditingSession: noop, onCancelEditingSession: noop,
-  onSaveEditingSession: noop, onProjectSelect: noop, onSessionSelect: noop, onDeleteSession: noop,
+  onSaveEditingSession: noop, onProjectSelect: noop, onSessionSelect: noop, onArchiveSession: noop, onDeleteSession: noop,
   onForkSession: noop, onLoadMoreSessions: noop, onNewSession: noop, selectedSessionIds: null,
   onSetSessionSelection: noop, onToggleSessionSelected: noop, onCancelSessionSelection: noop,
   onDeleteSelectedSessions: noop, t, ...overrides,
@@ -148,7 +148,7 @@ test('Conversations stays flat and newest first even when sessions have fork met
     sessionActions={{
       activeSessions: new Set(), backgroundSessionIds: new Set(), attentionSessionIds: new Set(),
       activeRename: null, onRenameDraftChange: noop, onStartEditingSession: noop,
-      onCancelEditingSession: noop, onSaveEditingSession: noop, onDeleteSession: noop,
+      onCancelEditingSession: noop, onSaveEditingSession: noop, onArchiveSession: noop, onDeleteSession: noop,
     }} onConversationSelect={noop} onLoadMore={noop} onRetry={noop}
   />);
   assert.deepEqual(Array.from(container.querySelectorAll('[data-testid="recent-conversation-row"]')).map((row) => row.getAttribute('href')),
