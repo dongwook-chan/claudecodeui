@@ -1633,9 +1633,12 @@ function parseCliVersion(output: string): string | null {
  * way, and the 5 s timeout bounds the wait. Used by every provider's auth
  * status (`installed` and `installedVersion`) and by the providers module's
  * CLI update service (the version before and after an update).
+ * AGY passes its normalized executable environment so this probe resolves the
+ * same binary as model discovery and the supervised runtime.
  */
-export function probeCliVersion(command: string, args: string[] = ['--version']): CliVersionProbe {
+export function probeCliVersion(command: string, args: string[] = ['--version'], env?: NodeJS.ProcessEnv): CliVersionProbe {
   const result = crossSpawn.sync(command, args, {
+    env,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'ignore'],
     timeout: 5000,
@@ -1754,4 +1757,74 @@ export function parseLinuxExclusiveFileLocks(contents: string): Map<string, numb
     holders.set(key, Number(match[1]));
   }
   return holders;
+}
+
+//----------------- NATIVE PROVIDER STORAGE ------------
+/**
+ * Providers' AGY history and snapshot readers use this strict protobuf wire
+ * decoder. It preserves repeated fields and unknown length-delimited bytes;
+ * it rejects truncated/unsupported wire types instead of guessing a boundary.
+ */
+export function readProtobufFields(payload: Buffer): Map<number, Array<bigint | Buffer>> {
+  const fields = new Map<number, Array<bigint | Buffer>>();
+  let offset = 0;
+  const varint = (): bigint => {
+    let value = 0n;
+    for (let shift = 0n; shift < 70n && offset < payload.length; shift += 7n) {
+      const byte = payload[offset++];
+      if (shift === 63n && byte > 1) throw new Error('Invalid protobuf varint');
+      value |= BigInt(byte & 127) << shift;
+      if (!(byte & 128)) return value;
+    }
+    throw new Error('Incomplete protobuf varint');
+  };
+  while (offset < payload.length) {
+    const key = varint();
+    const field = Number(key >> 3n);
+    const wire = Number(key & 7n);
+    if (field < 1 || field > 0x1fffffff) throw new Error('Invalid protobuf field');
+    let value: bigint | Buffer;
+    if (wire === 0) value = varint();
+    else {
+      const size = wire === 2 ? Number(varint()) : wire === 1 ? 8 : wire === 5 ? 4 : -1;
+      if (size < 0 || !Number.isSafeInteger(size) || size > payload.length - offset) {
+        throw new Error('Incomplete or unsupported protobuf field');
+      }
+      value = payload.subarray(offset, offset + size);
+      offset += size;
+    }
+    const values = fields.get(field) ?? [];
+    values.push(value);
+    fields.set(field, values);
+  }
+  return fields;
+}
+
+/**
+ * Providers' AGY runtime and usage reader normalize native request counters.
+ * Native input includes cached input and output includes thinking: neither is
+ * added a second time. No guessed context window or subscription quota is set.
+ */
+export function normalizeAntigravityTokenUsage(raw: unknown) {
+  const usage = readObjectRecord(raw);
+  const count = (value: unknown) => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0;
+  const inputTokens = count(usage?.input_tokens);
+  const outputTokens = count(usage?.output_tokens);
+  return {
+    used: inputTokens + outputTokens,
+    inputTokens,
+    outputTokens,
+    cacheReadTokens: count(usage?.cache_read_tokens),
+    breakdown: { input: inputTokens, output: outputTokens },
+  };
+}
+
+// ---------------------------
+/** Providers strip native control wrappers before showing user prompts and titles. */
+export function stripAntigravityTags(content: string): string {
+  return content
+    .replace(/<ADDITIONAL_METADATA>[\s\S]*?<\/ADDITIONAL_METADATA>/g, '')
+    .replace(/<USER_SETTINGS_CHANGE>[\s\S]*?<\/USER_SETTINGS_CHANGE>/g, '')
+    .replace(/<USER_REQUEST>\s*([\s\S]*?)\s*<\/USER_REQUEST>/g, '$1')
+    .trim();
 }
