@@ -6,6 +6,8 @@ import path from 'node:path';
 import { PassThrough } from 'node:stream';
 import test from 'node:test';
 
+import Database from 'better-sqlite3';
+
 import { AntigravitySessionsProvider } from '@/modules/providers/list/antigravity/antigravity-sessions.provider.js';
 import { createAntigravityRuntime, resolveAntigravityPermissionArgs } from '@/modules/providers/list/antigravity/antigravity-runtime.provider.js';
 import type { AnyRecord, ProviderRuntimeContext, ProviderRuntimeWriter } from '@/shared/index.js';
@@ -62,6 +64,87 @@ function createWriter(onMessage?: (message: AnyRecord) => void) {
   return { writer, messages, getProviderSessionId: () => id };
 }
 const tick = () => new Promise<void>((resolve) => setImmediate(resolve));
+
+test('AGY reconciles only a proven historical result error after a completed resumed turn', async (t) => {
+  const oldError = 'Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 3h35m54s.';
+  // Minimal native wire fixtures: error field 24/3/1 and planner field 20/1.
+  const bytes = (number: number): Buffer => {
+    const result: number[] = [];
+    do { const part = number % 128; number = Math.floor(number / 128); result.push(part | (number ? 128 : 0)); } while (number);
+    return Buffer.from(result);
+  };
+  const wire = (number: number, value: Buffer | string) => {
+    const payload = typeof value === 'string' ? Buffer.from(value) : value;
+    return Buffer.concat([bytes(number * 8 + 2), bytes(payload.length), payload]);
+  };
+  const errorPayload = wire(24, wire(3, wire(1, oldError)));
+  const answerPayload = wire(20, wire(1, 'Fresh completed answer'));
+  const cases = [
+    { name: 'old quota followed by a fresh final answer succeeds once', success: true },
+    { name: 'an identical new quota failure is still an error', newError: true },
+    { name: 'an unrelated current error is still an error', differentError: true },
+    { name: 'a partial answer followed by a tool call is still an error', tool: true },
+    { name: 'an unfinished native answer is still an error', active: true },
+    { name: 'a control-only native answer is still an error', control: true },
+    { name: 'a malformed native answer is still an error', malformed: true },
+    { name: 'a process failure is still an error', exitCode: 1 },
+    { name: 'a process error after a stale result is still an error', spawnError: true },
+    { name: 'without streamed output the stale error is retained', noDelta: true },
+    { name: 'without a new explicit user step the stale error is retained', noUser: true },
+    { name: 'multiple new turns do not establish ownership', extraUser: true },
+    { name: 'an unavailable native database retains the error', missing: true },
+    { name: 'a new session cannot reconcile a historical error', newSession: true },
+  ];
+  for (const scenario of cases) await t.test(scenario.name, async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'agy-result-boundary-'));
+    const originalHomeDir = os.homedir;
+    os.homedir = () => root;
+    let database: Database.Database | undefined;
+    try {
+      const directory = path.join(root, '.gemini', 'antigravity-cli', 'conversations');
+      await mkdir(directory, { recursive: true });
+      const dbPath = path.join(directory, 'native-id.db');
+      database = new Database(dbPath);
+      database.exec('CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER, status INTEGER, step_payload BLOB)');
+      const insert = database.prepare('INSERT INTO steps VALUES (?, ?, ?, ?)');
+      insert.run(71, 17, 3, errorPayload);
+      if (scenario.missing) { database.close(); database = undefined; await rm(dbPath); }
+      const child = createFakeProcess();
+      const runtime = createAntigravityRuntime({ spawnProcess: () => child as never });
+      const output = createWriter();
+      const pending = runtime.run('Continue safely', {}, output.writer, createRuntimeContext({
+        resolveProviderSessionId: () => scenario.newSession ? null : 'native-id',
+      }));
+      const outcome = scenario.success ? pending : assert.rejects(pending,
+        scenario.spawnError ? /transport failed/ : /Individual quota reached|another failure/);
+      await tick();
+      emitInit(child);
+      if (!scenario.noDelta) emitDelta(child, 'Fresh completed answer');
+      if (database) {
+        if (!scenario.noUser) insert.run(72, 14, 3, Buffer.alloc(0));
+        if (scenario.extraUser) insert.run(73, 14, 3, Buffer.alloc(0));
+        const planner = scenario.tool ? wire(20, Buffer.concat([wire(1, 'Partial'), wire(7, 'tool-call')]))
+          : scenario.control ? wire(20, wire(1, '<WAITING_FOR_EVENTS></WAITING_FOR_EVENTS>'))
+            : scenario.malformed ? Buffer.from([0xa2]) : answerPayload;
+        insert.run(74, 15, scenario.active ? 1 : 3, planner);
+        if (scenario.newError) insert.run(75, 17, 3, errorPayload);
+      }
+      emitEvent(child, { event: 'result', result: { conversation_id: 'native-id', status: 'ERROR',
+        error: scenario.differentError ? 'another failure' : oldError } });
+      if (scenario.spawnError) child.emit('error', new Error('transport failed'));
+      child.emit('close', scenario.exitCode ?? 0, null);
+      await outcome;
+      const completions = output.messages.filter((message) => message.kind === 'complete');
+      assert.equal(completions.length, 1);
+      assert.equal(completions[0].exitCode, scenario.success ? 0 : 1);
+      assert.equal(output.messages.filter((message) => message.kind === 'error').length, scenario.success ? 0 : 1);
+    } finally {
+      database?.close();
+      os.homedir = originalHomeDir;
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
 
 test('local AGY supervision retains native overrides while using the shared stdin protocol', async () => {
   const oldNative = process.env.AGY_CLI_PATH;
