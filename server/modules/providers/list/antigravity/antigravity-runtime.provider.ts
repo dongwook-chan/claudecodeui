@@ -6,6 +6,7 @@ import crossSpawn from 'cross-spawn';
 import { notifyRunFailed, notifyRunStopped } from '@/modules/notifications/index.js';
 import { AntigravityForkProvider } from '@/modules/providers/list/antigravity/antigravity-fork.provider.js';
 import { antigravityRunBindings } from '@/modules/providers/services/antigravity-run-bindings.service.js';
+import { captureAntigravityTurnBoundary, isHistoricalAntigravityResultError } from '@/modules/providers/services/antigravity-turn-result.service.js';
 import type {
   AnyRecord,
   IProviderRuntime,
@@ -203,6 +204,7 @@ async function runAntigravity(
   if (process.env.AGY_CLI_PATH?.trim()) {
     cliEnvironment.AGYX_REAL_AGY = resolveConfiguredCliExecutable(process.env.AGY_CLI_PATH, 'agy');
   }
+  const turnBoundary = captureAntigravityTurnBoundary(providerSessionId);
   return new Promise((resolve, reject) => {
     let child: AntigravityProcess;
     try {
@@ -227,6 +229,7 @@ async function runAntigravity(
     let stdoutBuffer = '';
     let settled = false;
     let failure: Error | null = null;
+    let resultFailure: Error | null = null;
     let sawResponseDelta = false;
     let sawResult = false;
     const toolSteps = new Set<number>();
@@ -304,7 +307,8 @@ async function runAntigravity(
       if (event?.event === 'result' && result) {
         sawResult = true;
         if (result.status !== 'SUCCESS') {
-          failure = new Error(readStringOption(result, 'error') ?? `Antigravity CLI returned ${String(result.status)}`);
+          resultFailure = new Error(readStringOption(result, 'error') ?? `Antigravity CLI returned ${String(result.status)}`);
+          failure = resultFailure;
         } else if (!sawResponseDelta && typeof result.response === 'string') {
           stdoutFilter.write(result.response);
         }
@@ -351,6 +355,13 @@ async function runAntigravity(
       catch (error) { failure = error instanceof Error ? error : new Error(String(error)); }
       stdoutFilter.finish();
       void (async () => {
+        // Some CLI versions reuse an old native error after a successful resumed
+        // turn. Only reconcile a clean process exit with fresh final-answer
+        // storage evidence; partial output and new failures remain failures.
+        if (code === 0 && sawResponseDelta && failure && failure === resultFailure
+          && isHistoricalAntigravityResultError(turnBoundary, failure.message)) {
+          failure = null;
+        }
         if (!failure && code === 0 && (!nativeSessionId || !sawResult)) {
           failure = new Error('Antigravity CLI did not report a conversation id and result; a CLI with stream-json support is required');
         }
