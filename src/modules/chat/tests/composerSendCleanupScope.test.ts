@@ -70,6 +70,13 @@ const renderComposer = (
       canAbortSession: false,
       tokenBudget: null,
       sendMessage: (message) => { sent.push(message as { type: string }); },
+      sendMessageWithAck: async (message, onAccepted) => {
+        sent.push(message);
+        onAccepted?.(new Date().toISOString());
+        return 'accepted';
+      },
+      socketReady: true,
+      isConnected: true,
       // The workspace selects the new session as soon as it exists.
       onSessionEstablished: (sessionId) => { rerender?.({ session: { id: sessionId } }); },
       scrollToBottom: () => undefined,
