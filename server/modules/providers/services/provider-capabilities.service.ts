@@ -171,6 +171,8 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
     supportsSessionForking: true,
     supportsSideQuestions: true,
     supportsSteering: false,
+    // Context clearing is currently implemented only by the Claude adapter.
+    supportsContextClearing: false,
   },
 };
 

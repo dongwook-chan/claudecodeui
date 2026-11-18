@@ -56,3 +56,7 @@ export { buildProviderCliEnv, buildDefaultProviderCurrentActiveModel, normalizeP
 export { appendImagesInputTag, parseImagesInputTag } from './image-attachments.js';
 export { SIDE_CONVERSATION_DEVELOPER_INSTRUCTIONS, SIDE_CONVERSATION_BOUNDARY_PROMPT } from './utils.js';
 export type { ChatTurnDispatchResult } from './types.js';
+
+// Providers preserves closed conversation segments while Scheduled Messages reads queued drafts.
+export type { ClearedContextSegment } from './types.js';
+export { readQueuedChatMessage } from './utils.js';
