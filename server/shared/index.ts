@@ -52,11 +52,10 @@ export type { SideQuestion, SideQuestionEvent, SideQuestionRuntime, SideQuestion
 // Antigravity adapters share the provider composition and native transcript contracts.
 export type { IProviderFork, IProviderModels, IProviderRuntime, IProviderSkills } from './interfaces.js';
 export type { ProviderModelsDefinition, ProviderModelOption, ProviderCurrentActiveModel, ProviderMcpServer, ProviderSkillSource } from './types.js';
-export { buildProviderCliEnv, buildDefaultProviderCurrentActiveModel, normalizeProjectPath, normalizeAntigravityTokenUsage, readProtobufFields, readJsonConfig, readStringArray, readStringRecord, sanitizeLeafDirectoryName, stripAntigravityTags, writeJsonConfig } from './utils.js';
+export { buildProviderCliEnv, buildDefaultProviderCurrentActiveModel, normalizeAntigravityTokenUsage, readProtobufFields, readJsonConfig, readStringArray, readStringRecord, sanitizeLeafDirectoryName, stripAntigravityTags, writeJsonConfig } from './utils.js';
 export { appendImagesInputTag, parseImagesInputTag } from './image-attachments.js';
 export { SIDE_CONVERSATION_DEVELOPER_INSTRUCTIONS, SIDE_CONVERSATION_BOUNDARY_PROMPT } from './utils.js';
 export type { ChatTurnDispatchResult } from './types.js';
 
-// Providers preserves closed conversation segments while Scheduled Messages reads queued drafts.
-export type { ClearedContextSegment } from './types.js';
+// Scheduled Messages uses the same queued-draft reader as WebSocket dispatch.
 export { readQueuedChatMessage } from './utils.js';
