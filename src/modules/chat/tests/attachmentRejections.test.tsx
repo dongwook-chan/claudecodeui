@@ -41,6 +41,8 @@ function ComposerHarness() {
     canAbortSession: false,
     tokenBudget: null,
     sendMessage: () => undefined,
+    sendMessageWithAck: async () => 'accepted',
+    socketReady: true,
     onSessionEstablished: () => undefined,
     scrollToBottom: () => undefined,
     addMessage: () => undefined,
