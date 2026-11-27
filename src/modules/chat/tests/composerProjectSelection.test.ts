@@ -484,6 +484,8 @@ test('a session that answers after a project switch or New Session stays with it
 });
 
 test('a send that answers late does not replace the current chat\'s created session', async () => {
+  const { api } = await import('@/shared/api');
+  const saveModel = vi.spyOn(api.providers, 'setSessionActiveModel');
   const { result, rerender } = await renderProviderState(null);
   rerender({ newSessionTrigger: 1 });
 
@@ -500,7 +502,10 @@ test('a send that answers late does not replace the current chat\'s created sess
   });
   rerender({ currentSessionId: 'session-b' });
   assert.equal(result.current.savesPickOnSession('claude'), true);
-  assert.equal(result.current.currentProviderModel, 'opus');
+  await act(async () => {
+    await result.current.selectProviderModel('claude', 'sonnet');
+  });
+  assert.deepEqual(saveModel.mock.calls, [['claude', 'session-b', 'sonnet']]);
 });
 
 test('a send that answers after an existing session was opened leaves that session\'s selection alone', async () => {
