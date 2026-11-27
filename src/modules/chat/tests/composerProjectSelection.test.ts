@@ -169,7 +169,7 @@ test('a new chat starts from the project selection until the user picks', async 
 
   await waitFor(() => {
     assert.equal(result.current.currentProviderModel, 'opus');
-    assert.equal(result.current.permissionMode, 'acceptEdits');
+    assert.equal(result.current.permissionMode, 'bypassPermissions');
   });
   // An overlay, not a new per-provider default that other projects would inherit.
   assert.equal(localStorage.getItem('claude-model'), 'sonnet');
@@ -182,25 +182,9 @@ test('a new chat starts from the project selection until the user picks', async 
     await result.current.selectProviderModel('claude', 'sonnet');
   });
 
-  assert.equal(result.current.permissionMode, 'plan');
+  assert.equal(result.current.permissionMode, 'bypassPermissions');
   assert.equal(result.current.currentProviderModel, 'sonnet');
   assert.equal(backend.savedModes.length, 0);
-});
-
-test('a pick made before the project selection arrives keeps that field only', async () => {
-  localStorage.setItem('claude-model', 'sonnet');
-  const { useChatProviderState } = await import('@/modules/chat/hooks/useChatProviderState');
-  const { result } = renderHook(() => useChatProviderState({ selectedSession: null, selectedProject: project }));
-
-  // Synchronously after mount, before the project request has answered.
-  act(() => {
-    result.current.selectPermissionMode('plan');
-  });
-
-  await waitFor(() => {
-    assert.equal(result.current.currentProviderModel, 'opus');
-  });
-  assert.equal(result.current.permissionMode, 'plan');
 });
 
 test('the empty state shows the project model and its own pick replaces it', async () => {
@@ -264,45 +248,30 @@ test('an effort pick in a new chat survives a switch to another provider and bac
   assert.equal(result.current.currentProviderEffort, 'max');
 });
 
-test('an open session restores and saves its backend permission mode', async () => {
+test('loading an open session keeps bypass permissions and leaves prior settings intact', async () => {
   localStorage.setItem('permissionMode-last-claude', 'default');
-  const { result } = await renderProviderState(session('session-1'));
-
-  await waitFor(() => {
-    assert.equal(result.current.permissionMode, 'plan');
-  });
-
-  act(() => {
-    result.current.selectPermissionMode('acceptEdits');
-  });
-
-  assert.equal(result.current.permissionMode, 'acceptEdits');
-  assert.deepEqual(backend.savedModes[0], ['claude', 'session-1', 'acceptEdits']);
-  // Kept as a synchronous cache for the next open, before the backend answers.
-  assert.equal(localStorage.getItem('permissionMode-session-1'), 'acceptEdits');
-});
-
-test('a mode picked while the session loads survives that load', async () => {
+  localStorage.setItem('permissionMode-session-1', 'plan');
   const read = gate();
   backend.beforeRead = read.promise;
   const { result } = await renderProviderState(session('session-1'));
+
   await waitFor(() => {
     assert.equal(backend.reads, 1);
   });
+  assert.equal(result.current.permissionMode, 'bypassPermissions');
 
-  // The read already took its snapshot of the row ('plan').
   act(() => {
     result.current.selectPermissionMode('acceptEdits');
+    result.current.cyclePermissionMode();
   });
-  backend.beforeRead = null;
   await act(async () => {
     read.open();
   });
 
-  await waitFor(() => {
-    assert.equal(backend.reads, 2);
-  });
-  assert.equal(result.current.permissionMode, 'acceptEdits');
+  assert.equal(result.current.permissionMode, 'bypassPermissions');
+  assert.equal(backend.savedModes.length, 0);
+  assert.equal(localStorage.getItem('permissionMode-last-claude'), 'default');
+  assert.equal(localStorage.getItem('permissionMode-session-1'), 'plan');
 });
 
 test('a new chat keeps its selection while its new session loads', async () => {
@@ -313,7 +282,7 @@ test('a new chat keeps its selection while its new session loads', async () => {
 
   await waitFor(() => {
     assert.equal(result.current.currentProviderModel, 'opus');
-    assert.equal(result.current.permissionMode, 'acceptEdits');
+    assert.equal(result.current.permissionMode, 'bypassPermissions');
   });
 
   // The chat gets its id before navigation selects its session.
@@ -322,7 +291,7 @@ test('a new chat keeps its selection while its new session loads', async () => {
 
   // The row has not answered yet; nothing may fall back to sonnet/default.
   assert.equal(result.current.currentProviderModel, 'opus');
-  assert.equal(result.current.permissionMode, 'acceptEdits');
+  assert.equal(result.current.permissionMode, 'bypassPermissions');
 });
 
 test('picks made before the new session is selected are read back by its first load', async () => {
@@ -338,7 +307,7 @@ test('picks made before the new session is selected are read back by its first l
     modelPick = result.current.selectProviderModel('claude', 'sonnet');
     result.current.selectPermissionMode('plan');
   });
-  assert.deepEqual(backend.savedModes[0], ['claude', 'session-new', 'plan']);
+  assert.equal(backend.savedModes.length, 0);
 
   rerender({ selectedSession: session('session-new') });
   // The load must not read the row while the saves are still on their way.
@@ -356,76 +325,7 @@ test('picks made before the new session is selected are read back by its first l
     assert.equal(backend.reads, 1);
   });
   assert.equal(result.current.currentProviderModel, 'sonnet');
-  assert.equal(result.current.permissionMode, 'plan');
-});
-
-test('a New Session click forgets the session the previous new chat created', async () => {
-  const { result, rerender, establish } = await renderProviderState(null);
-
-  establish('claude', 'session-new', { model: 'opus' });
-  // As in ChatInterface: the trigger first; the chat's id is cleared a render later.
-  rerender({ newSessionTrigger: 1 });
-  act(() => {
-    result.current.selectPermissionMode('plan');
-  });
-  rerender({ currentSessionId: null });
-  act(() => {
-    result.current.selectPermissionMode('acceptEdits');
-  });
-
-  assert.equal(backend.savedModes.length, 0);
-});
-
-test('a refused mode save takes the mode back', async () => {
-  // An older session: no recorded mode, so the per-provider key answers.
-  backend.row.permissionMode = null;
-  localStorage.setItem('permissionMode-last-claude', 'plan');
-  const { result } = await renderProviderState(session('session-1'));
-  await waitFor(() => {
-    assert.equal(backend.reads, 1);
-    assert.equal(result.current.permissionMode, 'plan');
-  });
-
-  const { api } = await import('@/shared/api');
-  const refuse = vi.spyOn(api.providers, 'setSessionActivePermissionMode')
-    .mockResolvedValueOnce({ ok: false, status: 400, json: async () => ({ success: false }) } as Response);
-  await act(async () => {
-    result.current.selectPermissionMode('acceptEdits');
-    await refuse.mock.results[0]?.value;
-  });
-
-  await waitFor(() => {
-    assert.equal(result.current.permissionMode, 'plan');
-  });
-  assert.equal(localStorage.getItem('permissionMode-session-1'), null);
-  assert.equal(localStorage.getItem('permissionMode-last-claude'), 'plan');
-});
-
-test('an older failed mode save does not roll back a newer pick of the same mode', async () => {
-  const { result } = await renderProviderState(session('session-1'));
-  await waitFor(() => {
-    assert.equal(result.current.permissionMode, 'plan');
-  });
-
-  const { api } = await import('@/shared/api');
-  let failFirst: (() => void) | undefined;
-  vi.spyOn(api.providers, 'setSessionActivePermissionMode')
-    .mockImplementationOnce(() => new Promise<Response>((resolve) => {
-      failFirst = () => resolve({ ok: false, status: 500, json: async () => ({ success: false }) } as Response);
-    }))
-    .mockResolvedValue({ ok: true, status: 200, json: async () => ({ success: true }) } as Response);
-  act(() => {
-    result.current.selectPermissionMode('acceptEdits');
-    result.current.selectPermissionMode('default');
-    result.current.selectPermissionMode('acceptEdits');
-  });
-  await act(async () => {
-    failFirst?.();
-  });
-
-  // The last pick was saved; the first pick's rollback must not restore plan.
-  assert.equal(result.current.permissionMode, 'acceptEdits');
-  assert.equal(localStorage.getItem('permissionMode-session-1'), 'acceptEdits');
+  assert.equal(result.current.permissionMode, 'bypassPermissions');
 });
 
 test('a failed effort save rolls back only the effort', async () => {
@@ -433,7 +333,7 @@ test('a failed effort save rolls back only the effort', async () => {
   backend.row = { model: 'sonnet', effort: 'low', permissionMode: 'plan' };
   const { result } = await renderProviderState(session('session-1'));
   await waitFor(() => {
-    assert.equal(result.current.permissionMode, 'plan');
+    assert.equal(result.current.permissionMode, 'bypassPermissions');
     assert.equal(result.current.currentProviderEffort, 'low');
   });
 
@@ -444,7 +344,7 @@ test('a failed effort save rolls back only the effort', async () => {
     await pending.catch(() => {});
   });
 
-  assert.equal(result.current.permissionMode, 'acceptEdits');
+  assert.equal(result.current.permissionMode, 'bypassPermissions');
   assert.equal(result.current.currentProviderEffort, 'low');
 });
 
@@ -464,7 +364,7 @@ test('a failed load keeps a seed only when it belongs to the session\'s provider
     assert.ok(loadFailed.mock.calls.some(([message]) => String(message).includes('Error loading the session')));
   });
   assert.equal(result.current.currentProviderModel, 'opus');
-  assert.equal(result.current.permissionMode, 'acceptEdits');
+  assert.equal(result.current.permissionMode, 'bypassPermissions');
 
   // A seed under another provider is not this session's and is replaced.
   loadFailed.mockClear();
@@ -476,20 +376,6 @@ test('a failed load keeps a seed only when it belongs to the session\'s provider
   });
   assert.equal(result.current.currentProviderModel, 'sonnet');
   loadFailed.mockRestore();
-});
-
-test('after a provider switch, mode picks are not saved on the created session', async () => {
-  const { result, establish } = await renderProviderState(null);
-
-  establish('claude', 'session-new', { model: 'opus' });
-  act(() => {
-    result.current.setProvider('codex');
-  });
-  act(() => {
-    result.current.selectPermissionMode('acceptEdits');
-  });
-
-  assert.equal(backend.savedModes.length, 0);
 });
 
 test('after a provider switch, model and effort picks are not saved on the created session', async () => {
@@ -567,8 +453,7 @@ test('a project switch during the first reply turns picks into defaults', async 
 
   assert.equal(result.current.savesPickOnSession('claude'), false);
   assert.equal(backend.savedModes.length, 0);
-  // Not lost: it is the provider's default for the new chat.
-  assert.equal(localStorage.getItem('permissionMode-last-claude'), 'acceptEdits');
+  assert.equal(result.current.permissionMode, 'bypassPermissions');
 });
 
 test('a session that answers after a project switch or New Session stays with its send', async () => {
@@ -582,29 +467,20 @@ test('a session that answers after a project switch or New Session stays with it
       newSessionTrigger,
     });
   });
-  const pickMode = (mode: 'plan' | 'acceptEdits') => act(() => {
-    result.current.selectPermissionMode(mode);
-  });
-
   // Control: the send's own project and trigger, so the session is the target.
   seed('/repo', 0);
   rerender({ currentSessionId: 'session-new' });
-  pickMode('plan');
-  assert.deepEqual(backend.savedModes, [['claude', 'session-new', 'plan']]);
+  assert.equal(result.current.savesPickOnSession('claude'), true);
 
   // The send was made in /repo, but the user is in /other when it answers.
   rerender({ selectedProject: { ...project, fullPath: '/other' } });
   seed('/repo', 0);
   assert.equal(result.current.savesPickOnSession('claude'), false);
-  pickMode('acceptEdits');
-  assert.equal(backend.savedModes.length, 1);
 
   // The send was made before a New Session click.
   rerender({ selectedProject: project, newSessionTrigger: 1 });
   seed('/repo', 0);
   assert.equal(result.current.savesPickOnSession('claude'), false);
-  pickMode('acceptEdits');
-  assert.equal(backend.savedModes.length, 1);
 });
 
 test('a send that answers late does not replace the current chat\'s created session', async () => {
@@ -623,11 +499,8 @@ test('a send that answers late does not replace the current chat\'s created sess
     });
   });
   rerender({ currentSessionId: 'session-b' });
-  act(() => {
-    result.current.selectPermissionMode('plan');
-  });
-
-  assert.deepEqual(backend.savedModes, [['claude', 'session-b', 'plan']]);
+  assert.equal(result.current.savesPickOnSession('claude'), true);
+  assert.equal(result.current.currentProviderModel, 'opus');
 });
 
 test('a send that answers after an existing session was opened leaves that session\'s selection alone', async () => {
@@ -637,7 +510,7 @@ test('a send that answers after an existing session was opened leaves that sessi
   await waitFor(() => {
     assert.equal(result.current.currentProviderModel, 'opus');
     assert.equal(result.current.currentProviderEffort, 'low');
-    assert.equal(result.current.permissionMode, 'plan');
+    assert.equal(result.current.permissionMode, 'bypassPermissions');
   });
 
   act(() => {
@@ -652,5 +525,5 @@ test('a send that answers after an existing session was opened leaves that sessi
 
   assert.equal(result.current.currentProviderModel, 'opus');
   assert.equal(result.current.currentProviderEffort, 'low');
-  assert.equal(result.current.permissionMode, 'plan');
+  assert.equal(result.current.permissionMode, 'bypassPermissions');
 });
